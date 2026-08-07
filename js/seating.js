@@ -202,5 +202,67 @@ window.App = window.App || {};
     };
   }
 
-  App.seating = { seatId, groupCapacity, assignSeats };
+  // Fills seats in a fixed order (not randomized): front-priority students first
+  // into front tables (front-to-back), then everyone else — still in the same
+  // sorted order — fills whatever's left, front tables included. Used by the
+  // A→Z / Z→A seating modes.
+  function fillInOrder(groups, queue, assignment, usedIds, preferredMax) {
+    let qi = 0;
+    for (const g of groups) {
+      const cap = Math.min(groupCapacity(g), preferredMax);
+      for (let i = 0; i < cap; i++) {
+        const sid = seatId(g.id, i);
+        if (assignment[sid]) continue;
+        while (qi < queue.length && usedIds.has(queue[qi].id)) qi++;
+        if (qi >= queue.length) continue;
+        assignment[sid] = queue[qi].id;
+        usedIds.add(queue[qi].id);
+        qi++;
+      }
+    }
+  }
+
+  // Main entry point for alphabetical (or reverse-alphabetical) seating.
+  // direction: "asc" or "desc". Returns the same shape as assignSeats().
+  function assignSeatsOrdered(period, classroom, direction) {
+    const layout = classroom.layout;
+    const preferredMax = classroom.preferredPerTable || 4;
+
+    if (!period.students.length || !layout.groups.length) {
+      return { assignment: {}, unmet: { unplacedIds: period.students.map((s) => s.id), avoidViolations: [], frontOverflowCount: 0 } };
+    }
+
+    const groupsByRow = layout.groups.slice().sort((a, b) => (a.row - b.row) || (a.col - b.col));
+    const frontGroups = groupsByRow.filter((g) => g.isFront);
+
+    const sorted = period.students.slice().sort((a, b) => App.util.fullName(a).localeCompare(App.util.fullName(b)));
+    if (direction === "desc") sorted.reverse();
+
+    const assignment = {};
+    const usedIds = new Set();
+
+    // Front-priority students claim front seats first, in the chosen order.
+    const frontQueue = sorted.filter((s) => s.front);
+    fillInOrder(frontGroups, frontQueue, assignment, usedIds, preferredMax);
+
+    // Everyone not yet seated (leftover front-priority + everyone else), still
+    // in the same order, fills whatever's left — front tables included.
+    fillInOrder(groupsByRow, sorted, assignment, usedIds, preferredMax);
+
+    const unplacedIds = sorted.filter((s) => !usedIds.has(s.id)).map((s) => s.id);
+    let frontOverflowCount = 0;
+    frontQueue.forEach((s) => {
+      const seatEntry = Object.keys(assignment).find((sid) => assignment[sid] === s.id);
+      const groupId = seatEntry ? seatEntry.split(":")[0] : null;
+      const group = groupId ? layout.groups.find((g) => g.id === groupId) : null;
+      if (!group || !group.isFront) frontOverflowCount++;
+    });
+
+    return {
+      assignment,
+      unmet: { unplacedIds, avoidViolations: [], frontOverflowCount },
+    };
+  }
+
+  App.seating = { seatId, groupCapacity, assignSeats, assignSeatsOrdered };
 })();

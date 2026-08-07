@@ -19,6 +19,13 @@ window.App = window.App || {};
     club: { symbol: "♣", color: "dark", label: "Clubs" },
   };
 
+  const COLORS = {
+    blue: { swatch: "#3b82f6", label: "Blue" },
+    yellow: { swatch: "#eab308", label: "Yellow" },
+    green: { swatch: "#22c55e", label: "Green" },
+    red: { swatch: "#ef4444", label: "Red" },
+  };
+
   // Table display numbers ("Table 1", "Table 2"...), assigned front-to-back,
   // left-to-right by grid position so they stay stable as tables are edited.
   function numberTables(layout) {
@@ -34,6 +41,23 @@ window.App = window.App || {};
   function suitForSeatIndex(suitPattern, index) {
     const pattern = suitPattern && suitPattern.length ? suitPattern : ["spade", "heart", "diamond", "club"];
     return pattern[index % pattern.length];
+  }
+
+  // Which color belongs at a given seat index — same reading-order/repeat rules as suits.
+  function colorForSeatIndex(colorPattern, index) {
+    const pattern = colorPattern && colorPattern.length ? colorPattern : ["blue", "yellow", "green", "red"];
+    return pattern[index % pattern.length];
+  }
+
+  // Unified lookup for whichever seat-marker style the classroom is using
+  // (playing-card suits or plain colors), so callers don't need to branch.
+  function getSeatMarker(classroom, index) {
+    if (classroom.seatMarkerType === "color") {
+      const key = colorForSeatIndex(classroom.colorPattern, index);
+      return { type: "color", key, swatch: COLORS[key].swatch, label: COLORS[key].label };
+    }
+    const key = suitForSeatIndex(classroom.suitPattern, index);
+    return { type: "suit", key, symbol: SUITS[key].symbol, textColor: SUITS[key].color, label: SUITS[key].label };
   }
 
   // Auto-assigned phone hotel numbers: Table 1's seats get #1..N, Table 2
@@ -76,5 +100,5 @@ window.App = window.App || {};
     return node;
   }
 
-  App.util = { fullName, formatTimestamp, el, SUITS, numberTables, suitForSeatIndex, computeAutoPhoneNumbers };
+  App.util = { fullName, formatTimestamp, el, SUITS, COLORS, numberTables, suitForSeatIndex, colorForSeatIndex, getSeatMarker, computeAutoPhoneNumbers };
 })();

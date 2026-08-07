@@ -135,7 +135,7 @@ App.ui = App.ui || {};
     ctx.strokeStyle = "#000000";
     ctx.stroke();
     ctx.font = "700 20px " + FONT;
-    ctx.fillText(period.label, width / 2, MARGIN + 74);
+    ctx.fillText(classroom.className ? classroom.className + " — " + period.label : period.label, width / 2, MARGIN + 74);
 
     const tableNumbers = App.util.numberTables(layout);
     const autoPhoneNumbers = classroom.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(layout) : null;
@@ -173,13 +173,22 @@ App.ui = App.ui || {};
         const sid = App.seating.seatId(g.id, i);
         const studentId = period.assignment[sid];
         const student = studentId ? period.students.find((s) => s.id === studentId) : null;
-        const suitKey = App.util.suitForSeatIndex(classroom.suitPattern, i);
-        const suit = App.util.SUITS[suitKey];
+        const marker = App.util.getSeatMarker(classroom, i);
 
-        ctx.textAlign = "right";
-        ctx.fillStyle = suit.color === "red" ? "#c0392b" : "#000000";
-        ctx.font = "700 13px " + FONT;
-        ctx.fillText(suit.symbol, sx + SEAT_W - 8, sy + 17);
+        if (marker.type === "color") {
+          ctx.beginPath();
+          ctx.arc(sx + SEAT_W - 13, sy + 13, 6, 0, Math.PI * 2);
+          ctx.fillStyle = marker.swatch;
+          ctx.fill();
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = "rgba(0,0,0,0.35)";
+          ctx.stroke();
+        } else {
+          ctx.textAlign = "right";
+          ctx.fillStyle = marker.textColor === "red" ? "#c0392b" : "#000000";
+          ctx.font = "700 13px " + FONT;
+          ctx.fillText(marker.symbol, sx + SEAT_W - 8, sy + 17);
+        }
 
         ctx.textAlign = "center";
         ctx.fillStyle = "#000000";
@@ -237,6 +246,32 @@ App.ui = App.ui || {};
         },
       }),
       el("button", {
+        text: "A→Z",
+        title: "Seat alphabetically by name",
+        disabled: !hasSeats || !hasStudents,
+        onclick: () => {
+          App.store.update((state) => {
+            const p = state.periods[period.id];
+            const result = App.seating.assignSeatsOrdered(p, state.classroom, "asc");
+            p.assignment = result.assignment;
+            lastUnmetByPeriod[period.id] = result.unmet;
+          });
+        },
+      }),
+      el("button", {
+        text: "Z→A",
+        title: "Seat in reverse alphabetical order",
+        disabled: !hasSeats || !hasStudents,
+        onclick: () => {
+          App.store.update((state) => {
+            const p = state.periods[period.id];
+            const result = App.seating.assignSeatsOrdered(p, state.classroom, "desc");
+            p.assignment = result.assignment;
+            lastUnmetByPeriod[period.id] = result.unmet;
+          });
+        },
+      }),
+      el("button", {
         text: "Clear seats",
         disabled: !Object.keys(period.assignment).length,
         onclick: () => {
@@ -276,7 +311,7 @@ App.ui = App.ui || {};
 
     panel.appendChild(el("div", { class: "print-header" }, [
       el("div", { class: "print-header-banner", text: "Whiteboard / Front of Class" }),
-      el("div", { class: "print-header-sub", text: period.label }),
+      el("div", { class: "print-header-sub", text: classroom.className ? classroom.className + " — " + period.label : period.label }),
     ]));
 
     const conflicts = computeConflicts(period, classroom);
@@ -305,8 +340,10 @@ App.ui = App.ui || {};
           const sid = App.seating.seatId(group.id, i);
           const studentId = period.assignment[sid];
           const student = studentId ? period.students.find((s) => s.id === studentId) : null;
-          const suitKey = App.util.suitForSeatIndex(classroom.suitPattern, i);
-          const suit = App.util.SUITS[suitKey];
+          const marker = App.util.getSeatMarker(classroom, i);
+          const markerBadge = marker.type === "color"
+            ? el("span", { class: "color-badge", style: "background:" + marker.swatch, title: marker.label })
+            : el("span", { class: "suit-badge suit-" + marker.textColor, text: marker.symbol });
           const phoneLine = autoPhoneNumbers
             ? "#" + autoPhoneNumbers[sid]
             : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
@@ -317,7 +354,7 @@ App.ui = App.ui || {};
             class: classes.join(" "),
             "data-seat-id": sid,
           }, [
-            el("span", { class: "suit-badge suit-" + suit.color, text: suit.symbol }),
+            markerBadge,
             el("span", { class: "seat-name", text: student ? fullName(student) : "Empty" }),
             phoneLine ? el("span", { class: "seat-phone", text: phoneLine }) : null,
           ]));

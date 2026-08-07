@@ -339,6 +339,15 @@ input:disabled { opacity: 0.45; cursor: not-allowed; }
   color: var(--text);
 }
 .suit-badge.red { color: var(--suit-red); }
+.color-badge {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
 .seat-name { padding-right: 14px; }
 .seat-phone {
   font-size: 9px;
