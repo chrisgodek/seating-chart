@@ -104,6 +104,7 @@ input[type="text"], input[type="number"], select {
   color: var(--text);
 }
 input[type="checkbox"] { accent-color: var(--accent); }
+input:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .panel {
   background: var(--panel);
@@ -441,13 +442,14 @@ input[type="checkbox"] { accent-color: var(--accent); }
     --front-badge: #b5750a !important;
   }
   body { background: #fff !important; }
-  body * { visibility: hidden; }
-  .seating-chart-panel, .seating-chart-panel * { visibility: visible; }
+  /* Hide everything except the seating chart itself. Using display:none (not
+     visibility:hidden) so hidden content doesn't still reserve page space and
+     push out a blank second page. */
+  .header-bar, .period-tabs, .sidebar-info, .layout-panel { display: none !important; }
+  #app { max-width: none; margin: 0; padding: 0; }
+  .main-grid { display: block; }
+  .sidebar-room { display: block; }
   .seating-chart-panel {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
     border: none;
     box-shadow: none;
     padding: 0;
@@ -471,11 +473,20 @@ input[type="checkbox"] { accent-color: var(--accent); }
     padding-bottom: 10px;
   }
   .print-header-sub {
-    margin-top: 6px;
-    font-size: 13px;
-    color: #444;
+    margin-top: 8px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #000;
   }
   .table-group, .seat { border-color: #000 !important; }
+  .table-group.thin { border-style: solid !important; }
+  .thin-tag { display: none !important; }
+  .front-word { display: none !important; }
+  .seat.conflict {
+    border-color: #000 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
   .table-group.blank { border: none !important; }
   .room-grid { background: none !important; border: none !important; }
 }
@@ -525,6 +536,22 @@ window.App = window.App || {};
     return pattern[index % pattern.length];
   }
 
+  // Auto-assigned phone hotel numbers: Table 1's seats get #1..N, Table 2
+  // continues where Table 1 left off, and so on — tied to the seat/table, not
+  // whichever student happens to sit there, so it stays correct across reshuffles.
+  function computeAutoPhoneNumbers(layout) {
+    const sorted = layout.groups.slice().sort((a, b) => (a.row - b.row) || (a.col - b.col));
+    const numbers = {};
+    let counter = 1;
+    sorted.forEach((g) => {
+      const capacity = App.seating.groupCapacity(g);
+      for (let i = 0; i < capacity; i++) {
+        numbers[App.seating.seatId(g.id, i)] = counter++;
+      }
+    });
+    return numbers;
+  }
+
   function el(tag, attrs, children) {
     const node = document.createElement(tag);
     attrs = attrs || {};
@@ -549,7 +576,7 @@ window.App = window.App || {};
     return node;
   }
 
-  App.util = { fullName, formatTimestamp, el, SUITS, numberTables, suitForSeatIndex };
+  App.util = { fullName, formatTimestamp, el, SUITS, numberTables, suitForSeatIndex, computeAutoPhoneNumbers };
 })();
 
 // ---- js/store.js ----
@@ -575,6 +602,7 @@ window.App = window.App || {};
       preferredPerTable: 4,
       preferredMinPerTable: 2,
       suitPattern: ["spade", "heart", "diamond", "club"],
+      autoAssignPhoneNumbers: false,
       assignment: {}, // seatId -> studentId
       savedCharts: [], // { id, name, layout, assignment, createdAt, lastUsedAt }
     };
@@ -816,7 +844,9 @@ window.App = window.App || {};
           const deficitA = (targets[a.g.id] || 0) - (a.g.capacity - remainingCap[a.g.id]);
           const deficitB = (targets[b.g.id] || 0) - (b.g.capacity - remainingCap[b.g.id]);
           if (deficitA !== deficitB) return deficitB - deficitA;
-          if (remainingCap[a.g.id] !== remainingCap[b.g.id]) return remainingCap[a.g.id] - remainingCap[b.g.id];
+          // Deficit is tied — let randomness (not "which table already has more people")
+          // decide, so e.g. front-priority students actually spread across front tables
+          // instead of always stacking into whichever one got the first pick.
           return a.jitter - b.jitter;
         })
         .map((x) => x.g);
@@ -848,31 +878,36 @@ window.App = window.App || {};
     const frontClusters = clusters.filter((c) => c.isFront);
     const normalClusters = clusters.filter((c) => !c.isFront);
 
+    // Front-flagged tables — only front-priority students are restricted to this pool.
     const frontGroups = layout.groups.filter((g) => g.isFront)
       .map((g) => ({ id: g.id, row: g.row, capacity: Math.min(groupCapacity(g), preferredMax) }))
       .sort((a, b) => a.row - b.row);
-    const normalGroups = layout.groups.filter((g) => !g.isFront)
+    // Every table, front and normal — everyone else (and front overflow) can use any of these,
+    // so a front table with more seats than front-priority students still ends up full.
+    const allGroups = layout.groups
       .map((g) => ({ id: g.id, row: g.row, capacity: Math.min(groupCapacity(g), preferredMax) }))
       .sort((a, b) => a.row - b.row);
 
-    const frontTotal = frontClusters.reduce((n, c) => n + c.size, 0);
-    const normalTotal = normalClusters.reduce((n, c) => n + c.size, 0);
-    const targets = Object.assign(
-      computeTargets(frontGroups, frontTotal, preferredMax),
-      computeTargets(normalGroups, normalTotal, preferredMax)
-    );
+    const totalSize = frontClusters.reduce((n, c) => n + c.size, 0) + normalClusters.reduce((n, c) => n + c.size, 0);
+    const targets = computeTargets(allGroups, totalSize, preferredMax);
 
     const remainingCap = {};
-    frontGroups.concat(normalGroups).forEach((g) => { remainingCap[g.id] = g.capacity; });
+    allGroups.forEach((g) => { remainingCap[g.id] = g.capacity; });
     const occupancy = {};
     const avoidSet = new Set();
     (avoidPairs || []).forEach(([a, b]) => avoidSet.add(a + "|" + b));
 
     const violations = [];
+    // Front-priority students go into front tables first, spread across whichever front
+    // tables need them most (targets are shared room-wide, so this still favors the
+    // frontmost tables) rather than stacking every front-priority student into one table.
     let unplacedFront = placeClusters(frontClusters, frontGroups, occupancy, remainingCap, avoidSet, violations, targets);
-    // Front overflow spills into normal groups as a fallback.
-    let overflowUnplaced = placeClusters(unplacedFront, normalGroups, occupancy, remainingCap, avoidSet, violations, targets);
-    let unplacedNormal = placeClusters(normalClusters, normalGroups, occupancy, remainingCap, avoidSet, violations, targets);
+    // If front tables genuinely can't hold every front-priority student, the rest spill anywhere.
+    let overflowUnplaced = placeClusters(unplacedFront, allGroups, occupancy, remainingCap, avoidSet, violations, targets);
+    // Everyone else fills whatever's left, front tables included — this is what auto-fills
+    // front seats a front-priority student didn't need with regular students instead of
+    // leaving them empty.
+    let unplacedNormal = placeClusters(normalClusters, allGroups, occupancy, remainingCap, avoidSet, violations, targets);
 
     const unplacedClusters = overflowUnplaced.concat(unplacedNormal);
     const unplacedIds = [];
@@ -1073,6 +1108,21 @@ App.ui = App.ui || {};
       el("button", { text: "Add", onclick: addStudent }),
     ]));
 
+    const autoPhoneToggle = el("label", { class: "checkbox-row" }, [
+      el("input", {
+        type: "checkbox",
+        checked: !!period.autoAssignPhoneNumbers,
+        onchange: () => App.store.update((state) => {
+          state.periods[period.id].autoAssignPhoneNumbers = !state.periods[period.id].autoAssignPhoneNumbers;
+        }),
+      }),
+      "Auto-assign phone hotel #s by table (Table 1 = #1, 2, 3…, Table 2 continues from there, etc.)",
+    ]);
+    panel.appendChild(autoPhoneToggle);
+    if (period.autoAssignPhoneNumbers) {
+      panel.appendChild(el("div", { class: "hint", text: "Numbers are shown on the seating chart based on each seat's table. Manual numbers below are ignored while this is on." }));
+    }
+
     if (selectedIds.size >= 2) {
       panel.appendChild(el("div", { class: "hint", text: selectedIds.size + " selected — use the Constraints panel below to pair them." }));
     } else {
@@ -1101,6 +1151,7 @@ App.ui = App.ui || {};
           placeholder: "#",
           title: "Phone hotel number",
           value: s.phoneNumber || "",
+          disabled: !!period.autoAssignPhoneNumbers,
         });
         phoneInput.addEventListener("change", () => {
           App.store.update((state) => {
@@ -1261,7 +1312,7 @@ App.ui = App.ui || {};
   }
 
   function render(period) {
-    const panel = el("div", { class: "panel" });
+    const panel = el("div", { class: "panel layout-panel" });
     panel.appendChild(el("div", { class: "section-title", text: "Classroom Layout" }));
 
     const layout = period.layout;
@@ -1532,12 +1583,13 @@ App.ui = App.ui || {};
 
     panel.appendChild(el("div", { class: "print-header" }, [
       el("div", { class: "print-header-banner", text: "Whiteboard / Front of Class" }),
-      el("div", { class: "print-header-sub", text: period.label + " — printed " + new Date().toLocaleDateString() }),
+      el("div", { class: "print-header-sub", text: period.label }),
     ]));
 
     const conflicts = computeConflicts(period);
     const thinGroups = computeThinGroups(period);
     const tableNumbers = App.util.numberTables(period.layout);
+    const autoPhoneNumbers = period.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(period.layout) : null;
     const layout = period.layout;
     const grid = el("div", {
       class: "room-grid",
@@ -1562,6 +1614,9 @@ App.ui = App.ui || {};
           const student = studentId ? period.students.find((s) => s.id === studentId) : null;
           const suitKey = App.util.suitForSeatIndex(period, i);
           const suit = App.util.SUITS[suitKey];
+          const phoneLine = autoPhoneNumbers
+            ? "#" + autoPhoneNumbers[sid]
+            : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
           const classes = ["seat"];
           if (student) classes.push("filled");
           if (conflicts.has(sid)) classes.push("conflict");
@@ -1571,13 +1626,16 @@ App.ui = App.ui || {};
           }, [
             el("span", { class: "suit-badge suit-" + suit.color, text: suit.symbol }),
             el("span", { class: "seat-name", text: student ? fullName(student) : "Empty" }),
-            student && student.phoneNumber ? el("span", { class: "seat-phone", text: "#" + student.phoneNumber }) : null,
+            phoneLine ? el("span", { class: "seat-phone", text: phoneLine }) : null,
           ]));
         }
         const isThin = thinGroups.has(group.id);
         grid.appendChild(el("div", { class: "table-group" + (group.isFront ? " front" : "") + (isThin ? " thin" : "") }, [
           el("div", { class: "table-header" }, [
-            el("span", { text: (group.isFront ? "Front table " : "Table ") + tableNumbers[group.id], class: group.isFront ? "front-tag" : "" }),
+            el("span", { class: group.isFront ? "front-tag" : "" }, [
+              group.isFront ? el("span", { class: "front-word", text: "Front " }) : null,
+              "Table " + tableNumbers[group.id],
+            ]),
             isThin ? el("span", { class: "thin-tag", text: "Below min" }) : null,
           ]),
           seatGrid,
@@ -1750,13 +1808,13 @@ App.ui = App.ui || {};
 
     const mainGrid = el("div", { class: "main-grid" });
 
-    const sidebar = el("div", { class: "sidebar" }, [
+    const sidebar = el("div", { class: "sidebar sidebar-info" }, [
       App.ui.roster.render(period),
       App.ui.constraints.render(period),
       App.ui.savedCharts.render(period),
     ]);
 
-    const centerCol = el("div", { class: "sidebar" }, [
+    const centerCol = el("div", { class: "sidebar sidebar-room" }, [
       App.ui.layout.render(period),
       App.ui.chart.render(period),
     ]);
