@@ -713,11 +713,26 @@ window.App = window.App || {};
     return rows.filter((r) => r.some((f) => f.trim() !== ""));
   }
 
-  // Parses roster CSV text into [{firstName, lastName}]. Supports headers like
-  // "First Name"/"Last Name", a single "Name" column ("First Last" or "Last, First"),
-  // or falls back to treating the first column as a full name with no header.
-  function parseRoster(text) {
-    const rows = parseCSV(text);
+  // Splits a single "full name" cell into {firstName, lastName}. Handles both
+  // "Last, First" and "First Last" notations.
+  function parseFullName(full) {
+    full = (full || "").trim();
+    if (!full) return { firstName: "", lastName: "" };
+    if (full.includes(",")) {
+      const parts = full.split(",");
+      return { lastName: parts[0].trim(), firstName: (parts[1] || "").trim() };
+    }
+    const idx = full.indexOf(" ");
+    if (idx === -1) return { firstName: full, lastName: "" };
+    return { firstName: full.slice(0, idx).trim(), lastName: full.slice(idx + 1).trim() };
+  }
+
+  // Converts spreadsheet-style rows (array of arrays of strings) into
+  // [{firstName, lastName}]. Supports headers like "First Name"/"Last Name",
+  // a single "Name" column ("First Last" or "Last, First"), or falls back to
+  // treating the first column as a full name with no header. Shared by the
+  // CSV and Excel parsers so both formats behave identically.
+  function rowsToStudents(rows) {
     if (!rows.length) return [];
 
     const headerRow = rows[0];
@@ -727,7 +742,7 @@ window.App = window.App || {};
     let firstIdx = -1, lastIdx = -1, fullIdx = -1;
     if (looksLikeHeader) {
       headerRow.forEach((h, i) => {
-        const t = h.trim().toLowerCase();
+        const t = (h || "").trim().toLowerCase();
         if (/^first/.test(t)) firstIdx = i;
         else if (/^last/.test(t)) lastIdx = i;
         else if (fullIdx === -1 && /name/.test(t)) fullIdx = i;
@@ -742,21 +757,9 @@ window.App = window.App || {};
         firstName = (firstIdx >= 0 ? r[firstIdx] || "" : "").trim();
         lastName = (lastIdx >= 0 ? r[lastIdx] || "" : "").trim();
       } else {
-        const full = (r[fullIdx] || "").trim();
-        if (!full) continue;
-        if (full.includes(",")) {
-          const parts = full.split(",");
-          lastName = parts[0].trim();
-          firstName = (parts[1] || "").trim();
-        } else {
-          const idx = full.indexOf(" ");
-          if (idx === -1) {
-            firstName = full;
-          } else {
-            firstName = full.slice(0, idx).trim();
-            lastName = full.slice(idx + 1).trim();
-          }
-        }
+        const parsed = parseFullName(r[fullIdx]);
+        firstName = parsed.firstName;
+        lastName = parsed.lastName;
       }
       if (!firstName && !lastName) continue;
       students.push({ firstName, lastName });
@@ -764,7 +767,32 @@ window.App = window.App || {};
     return students;
   }
 
-  App.csv = { parseCSV, parseRoster };
+  // Parses roster CSV text into [{firstName, lastName}].
+  function parseRoster(text) {
+    return rowsToStudents(parseCSV(text));
+  }
+
+  // Parses a plain-text roster, one name per line ("First Last" or "Last, First").
+  function parseTextRoster(text) {
+    return text
+      .split(/\r\n|\r|\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => parseFullName(line))
+      .filter((s) => s.firstName || s.lastName);
+  }
+
+  // Reads the first sheet of a SheetJS workbook into [{firstName, lastName}].
+  function parseWorkbookRoster(workbook) {
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) return [];
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" })
+      .map((row) => row.map((cell) => (cell == null ? "" : String(cell))));
+    return rowsToStudents(rows);
+  }
+
+  App.csv = { parseCSV, parseRoster, parseTextRoster, parseWorkbookRoster };
 })();
 
 // ---- js/seating.js ----
@@ -1036,6 +1064,26 @@ App.ui = App.ui || {};
   let selectedIds = new Set();
   let lastPeriodId = null;
 
+  const XLSX_CDN_URL = "https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js";
+  let xlsxLoadPromise = null;
+  // Lazy-loads the Excel reader only when someone actually uploads an .xlsx/.xls
+  // file, so the app has no external dependency until that feature is used.
+  function ensureXLSX() {
+    if (typeof XLSX !== "undefined") return Promise.resolve();
+    if (xlsxLoadPromise) return xlsxLoadPromise;
+    xlsxLoadPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = XLSX_CDN_URL;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        xlsxLoadPromise = null;
+        reject(new Error("Couldn't load the Excel reader — check your internet connection and try again."));
+      };
+      document.head.appendChild(script);
+    });
+    return xlsxLoadPromise;
+  }
+
   function toggleSelect(id) {
     if (selectedIds.has(id)) selectedIds.delete(id);
     else selectedIds.add(id);
@@ -1058,37 +1106,62 @@ App.ui = App.ui || {};
     const panel = el("div", { class: "panel" });
     panel.appendChild(el("div", { class: "section-title", text: "Roster — " + period.students.length + " students" }));
 
-    const fileInput = el("input", { type: "file", accept: ".csv,text/csv", style: "display:none" });
+    function addParsedStudents(parsed) {
+      if (!parsed.length) {
+        alert("No students found in that file.");
+        return;
+      }
+      App.store.update((state) => {
+        const p = state.periods[period.id];
+        const existing = new Set(p.students.map((s) => (s.firstName + "|" + s.lastName).toLowerCase()));
+        parsed.forEach((s) => {
+          const key = (s.firstName + "|" + s.lastName).toLowerCase();
+          if (existing.has(key)) return;
+          existing.add(key);
+          p.students.push({ id: App.store.uid("student"), firstName: s.firstName, lastName: s.lastName, front: false, phoneNumber: "" });
+        });
+      });
+    }
+
+    const fileInput = el("input", { type: "file", accept: ".csv,.txt,.xlsx,.xls,text/csv,text/plain", style: "display:none" });
     fileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const parsed = App.csv.parseRoster(String(reader.result));
-        if (!parsed.length) {
-          alert("No students found in that file.");
-          return;
-        }
-        App.store.update((state) => {
-          const p = state.periods[period.id];
-          const existing = new Set(p.students.map((s) => (s.firstName + "|" + s.lastName).toLowerCase()));
-          parsed.forEach((s) => {
-            const key = (s.firstName + "|" + s.lastName).toLowerCase();
-            if (existing.has(key)) return;
-            existing.add(key);
-            p.students.push({ id: App.store.uid("student"), firstName: s.firstName, lastName: s.lastName, front: false, phoneNumber: "" });
-          });
-        });
-      };
-      reader.readAsText(file);
+      const name = file.name.toLowerCase();
+
+      if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        ensureXLSX()
+          .then(() => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              try {
+                const workbook = XLSX.read(new Uint8Array(reader.result), { type: "array" });
+                addParsedStudents(App.csv.parseWorkbookRoster(workbook));
+              } catch (err) {
+                alert("Couldn't read that Excel file: " + err.message);
+              }
+            };
+            reader.readAsArrayBuffer(file);
+          })
+          .catch((err) => alert(err.message));
+      } else if (name.endsWith(".txt")) {
+        const reader = new FileReader();
+        reader.onload = () => addParsedStudents(App.csv.parseTextRoster(String(reader.result)));
+        reader.readAsText(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => addParsedStudents(App.csv.parseRoster(String(reader.result)));
+        reader.readAsText(file);
+      }
       e.target.value = "";
     });
 
     const toolbar = el("div", { class: "toolbar-row" }, [
-      el("button", { text: "Upload CSV", onclick: () => fileInput.click() }),
+      el("button", { text: "Upload Roster", onclick: () => fileInput.click() }),
       fileInput,
     ]);
     panel.appendChild(toolbar);
+    panel.appendChild(el("div", { class: "hint", text: "CSV, Excel (.xlsx/.xls), or a plain text file with one name per line. Excel needs an internet connection the first time." }));
 
     const firstInput = el("input", { type: "text", placeholder: "First name" });
     const lastInput = el("input", { type: "text", placeholder: "Last name" });
@@ -1130,7 +1203,7 @@ App.ui = App.ui || {};
     }
 
     if (!period.students.length) {
-      panel.appendChild(el("div", { class: "empty-state", text: "No students yet. Upload a CSV or add students above." }));
+      panel.appendChild(el("div", { class: "empty-state", text: "No students yet. Upload a roster or add students above." }));
       return panel;
     }
 
@@ -1527,6 +1600,155 @@ App.ui = App.ui || {};
     });
   }
 
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function wrapText(ctx, text, cx, cy, maxWidth, lineHeight) {
+    const words = text.split(" ");
+    const lines = [];
+    let current = "";
+    words.forEach((w) => {
+      const test = current ? current + " " + w : w;
+      if (current && ctx.measureText(test).width > maxWidth) {
+        lines.push(current);
+        current = w;
+      } else {
+        current = test;
+      }
+    });
+    if (current) lines.push(current);
+    const startY = cy - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((line, i) => ctx.fillText(line, cx, startY + i * lineHeight));
+  }
+
+  const FONT = "-apple-system, Helvetica, Arial, sans-serif";
+
+  // Draws the seating chart fresh onto a canvas (not a DOM screenshot), so the
+  // exported image follows the same "clean" rules as print: no conflict/thin
+  // highlighting, no "Front" word — just the room, tables, and students.
+  function buildChartCanvas(period) {
+    const SCALE = 2;
+    const SEAT_W = 130, SEAT_H = 66, SEAT_GAP = 8;
+    const TABLE_PAD = 14, HEADER_H = 26, TABLE_GAP = 26, MARGIN = 36, BANNER_H = 96;
+
+    const layout = period.layout;
+    const groups = layout.groups;
+    const maxSeatCols = Math.max(1, ...groups.map((g) => g.seatCols));
+    const maxSeatRows = Math.max(1, ...groups.map((g) => g.seatRows));
+    const cellW = TABLE_PAD * 2 + maxSeatCols * SEAT_W + (maxSeatCols - 1) * SEAT_GAP;
+    const cellH = HEADER_H + TABLE_PAD * 2 + maxSeatRows * SEAT_H + (maxSeatRows - 1) * SEAT_GAP;
+
+    const width = MARGIN * 2 + layout.cols * cellW + Math.max(0, layout.cols - 1) * TABLE_GAP;
+    const height = MARGIN * 2 + BANNER_H + layout.rows * cellH + Math.max(0, layout.rows - 1) * TABLE_GAP;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * SCALE);
+    canvas.height = Math.round(height * SCALE);
+    const ctx = canvas.getContext("2d");
+    ctx.scale(SCALE, SCALE);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000000";
+    ctx.font = "800 30px " + FONT;
+    ctx.fillText("Whiteboard / Front of Class", width / 2, MARGIN + 30);
+    ctx.beginPath();
+    ctx.moveTo(MARGIN, MARGIN + 44);
+    ctx.lineTo(width - MARGIN, MARGIN + 44);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#000000";
+    ctx.stroke();
+    ctx.font = "700 20px " + FONT;
+    ctx.fillText(period.label, width / 2, MARGIN + 74);
+
+    const tableNumbers = App.util.numberTables(layout);
+    const autoPhoneNumbers = period.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(layout) : null;
+
+    groups.forEach((g) => {
+      const x = MARGIN + g.col * (cellW + TABLE_GAP);
+      const y = MARGIN + BANNER_H + g.row * (cellH + TABLE_GAP);
+      const tableW = TABLE_PAD * 2 + g.seatCols * SEAT_W + (g.seatCols - 1) * SEAT_GAP;
+      const tableH = HEADER_H + TABLE_PAD * 2 + g.seatRows * SEAT_H + (g.seatRows - 1) * SEAT_GAP;
+
+      ctx.strokeStyle = g.isFront ? "#b5750a" : "#000000";
+      ctx.lineWidth = 2;
+      roundRect(ctx, x, y, tableW, tableH, 10);
+      ctx.stroke();
+
+      ctx.textAlign = "left";
+      ctx.fillStyle = g.isFront ? "#b5750a" : "#000000";
+      ctx.font = "700 14px " + FONT;
+      ctx.fillText("Table " + tableNumbers[g.id], x + TABLE_PAD, y + 20);
+
+      const capacity = App.seating.groupCapacity(g);
+      for (let i = 0; i < capacity; i++) {
+        const sr = Math.floor(i / g.seatCols);
+        const sc = i % g.seatCols;
+        const sx = x + TABLE_PAD + sc * (SEAT_W + SEAT_GAP);
+        const sy = y + HEADER_H + TABLE_PAD + sr * (SEAT_H + SEAT_GAP);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#999999";
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, sx, sy, SEAT_W, SEAT_H, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        const sid = App.seating.seatId(g.id, i);
+        const studentId = period.assignment[sid];
+        const student = studentId ? period.students.find((s) => s.id === studentId) : null;
+        const suitKey = App.util.suitForSeatIndex(period, i);
+        const suit = App.util.SUITS[suitKey];
+
+        ctx.textAlign = "right";
+        ctx.fillStyle = suit.color === "red" ? "#c0392b" : "#000000";
+        ctx.font = "700 13px " + FONT;
+        ctx.fillText(suit.symbol, sx + SEAT_W - 8, sy + 17);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#000000";
+        ctx.font = "600 13px " + FONT;
+        wrapText(ctx, student ? fullName(student) : "Empty", sx + SEAT_W / 2, sy + SEAT_H / 2 - 2, SEAT_W - 16, 15);
+
+        const phoneLine = autoPhoneNumbers
+          ? "#" + autoPhoneNumbers[sid]
+          : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
+        if (phoneLine) {
+          ctx.font = "400 11px " + FONT;
+          ctx.fillStyle = "#555555";
+          ctx.fillText(phoneLine, sx + SEAT_W / 2, sy + SEAT_H - 8);
+        }
+      }
+    });
+
+    return canvas;
+  }
+
+  function downloadChartImage(period) {
+    const canvas = buildChartCanvas(period);
+    canvas.toBlob((blob) => {
+      if (!blob) { alert("Couldn't generate the image."); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (period.label || "seating-chart").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") + "-seating-chart.jpg";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, "image/jpeg", 0.92);
+  }
+
   function render(period) {
     const panel = el("div", { class: "panel seating-chart-panel" });
     panel.appendChild(el("div", { class: "section-title", text: "Seating Chart" }));
@@ -1560,6 +1782,11 @@ App.ui = App.ui || {};
         text: "Print",
         disabled: !Object.keys(period.assignment).length,
         onclick: () => window.print(),
+      }),
+      el("button", {
+        text: "Save as Image (JPG)",
+        disabled: !Object.keys(period.assignment).length,
+        onclick: () => downloadChartImage(period),
       }),
     ]));
 
