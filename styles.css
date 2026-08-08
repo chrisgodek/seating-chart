@@ -427,6 +427,7 @@ input:disabled { opacity: 0.45; cursor: not-allowed; }
 .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
 .print-header { display: none; }
+#print-all-container { display: none; }
 
 @media print {
   :root {
@@ -491,5 +492,14 @@ input:disabled { opacity: 0.45; cursor: not-allowed; }
   }
   .table-group.blank { border: none !important; }
   .room-grid { background: none !important; border: none !important; }
+
+  /* "Print All Filled Periods" swaps in a container with one page per period
+     instead of the single live chart. */
+  body.printing-all .seating-chart-panel { display: none !important; }
+  body.printing-all #print-all-container { display: block; }
+  .print-page + .print-page {
+    page-break-before: always;
+    break-before: page;
+  }
 }
 

@@ -61,6 +61,23 @@ App.ui = App.ui || {};
 
     const toolbar = el("div", { class: "toolbar-row" }, [
       el("button", { text: "Upload Roster", onclick: () => fileInput.click() }),
+      el("button", {
+        class: "danger",
+        text: "Clear Roster",
+        disabled: !period.students.length,
+        onclick: () => {
+          if (!window.confirm(`Remove all ${period.students.length} student(s) from ${period.label}? This also clears their pairing rules and current seating for this period.`)) return;
+          clearSelected();
+          App.ui.chart.clearWarning(period.id);
+          App.store.update((state) => {
+            const p = state.periods[period.id];
+            p.students = [];
+            p.avoidPairs = [];
+            p.mustPairs = [];
+            p.assignment = {};
+          });
+        },
+      }),
       fileInput,
     ]);
     panel.appendChild(toolbar);

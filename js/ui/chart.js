@@ -224,6 +224,128 @@ App.ui = App.ui || {};
     }, "image/jpeg", 0.92);
   }
 
+  // Builds the table/seat grid for one period against the shared classroom
+  // layout. Shared by the live on-screen chart and the "print all" pages so
+  // both stay in sync automatically.
+  function buildSeatingGrid(period, classroom, options) {
+    options = options || {};
+    const conflicts = computeConflicts(period, classroom);
+    const thinGroups = computeThinGroups(period, classroom);
+    const tableNumbers = App.util.numberTables(classroom.layout);
+    const autoPhoneNumbers = classroom.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(classroom.layout) : null;
+    const layout = classroom.layout;
+    const grid = el("div", {
+      class: "room-grid",
+      style: `grid-template-columns: repeat(${layout.cols}, minmax(140px, 1fr)); grid-template-rows: repeat(${layout.rows}, auto);`,
+    });
+
+    for (let r = 0; r < layout.rows; r++) {
+      for (let c = 0; c < layout.cols; c++) {
+        const group = layout.groups.find((g) => g.row === r && g.col === c);
+        if (!group) {
+          grid.appendChild(el("div", { class: "table-group blank" }));
+          continue;
+        }
+        const capacity = App.seating.groupCapacity(group);
+        const seatGrid = el("div", {
+          class: "seat-grid",
+          style: `grid-template-columns: repeat(${group.seatCols}, 1fr);`,
+        });
+        for (let i = 0; i < capacity; i++) {
+          const sid = App.seating.seatId(group.id, i);
+          const studentId = period.assignment[sid];
+          const student = studentId ? period.students.find((s) => s.id === studentId) : null;
+          const marker = App.util.getSeatMarker(classroom, i);
+          const markerBadge = marker.type === "color"
+            ? el("span", { class: "color-badge", style: "background:" + marker.swatch, title: marker.label })
+            : el("span", { class: "suit-badge suit-" + marker.textColor, text: marker.symbol });
+          const phoneLine = autoPhoneNumbers
+            ? "#" + autoPhoneNumbers[sid]
+            : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
+          const classes = ["seat"];
+          if (student) classes.push("filled");
+          if (conflicts.has(sid)) classes.push("conflict");
+          seatGrid.appendChild(el("div", {
+            class: classes.join(" "),
+            "data-seat-id": sid,
+          }, [
+            markerBadge,
+            el("span", { class: "seat-name", text: student ? fullName(student) : "Empty" }),
+            phoneLine ? el("span", { class: "seat-phone", text: phoneLine }) : null,
+          ]));
+        }
+        const isThin = thinGroups.has(group.id);
+        grid.appendChild(el("div", { class: "table-group" + (group.isFront ? " front" : "") + (isThin ? " thin" : "") }, [
+          el("div", { class: "table-header" }, [
+            el("span", { class: group.isFront ? "front-tag" : "" }, [
+              group.isFront ? el("span", { class: "front-word", text: "Front " }) : null,
+              "Table " + tableNumbers[group.id],
+            ]),
+            isThin ? el("span", { class: "thin-tag", text: "Below min" }) : null,
+          ]),
+          seatGrid,
+        ]));
+      }
+    }
+
+    if (options.interactive) {
+      App.dnd.attach(grid, (fromId, toId) => swapSeats(period.id, fromId, toId));
+    }
+
+    return grid;
+  }
+
+  function buildPrintHeader(period, classroom) {
+    return el("div", { class: "print-header" }, [
+      el("div", { class: "print-header-banner", text: "Whiteboard / Front of Class" }),
+      el("div", { class: "print-header-sub", text: classroom.className ? classroom.className + " — " + period.label : period.label }),
+    ]);
+  }
+
+  // One printable page (header + room grid) for a single period — used to
+  // build up the multi-period "print all" job below.
+  function buildPrintablePage(period, classroom) {
+    const page = el("div", { class: "print-page" });
+    page.appendChild(buildPrintHeader(period, classroom));
+    page.appendChild(buildSeatingGrid(period, classroom, { interactive: false }));
+    return page;
+  }
+
+  let printAllContainer = null;
+  function getPrintAllContainer() {
+    if (!printAllContainer) {
+      printAllContainer = document.createElement("div");
+      printAllContainer.id = "print-all-container";
+      document.body.appendChild(printAllContainer);
+    }
+    return printAllContainer;
+  }
+  window.addEventListener("afterprint", () => {
+    document.body.classList.remove("printing-all");
+    if (printAllContainer) printAllContainer.innerHTML = "";
+  });
+
+  // Prints one page per period that has a roster filled in, skipping any
+  // periods with no students instead of forcing you to print each one by hand.
+  function printAllFilledPeriods(classroom) {
+    const state = App.store.state;
+    const eligible = state.periodOrder
+      .map((id) => state.periods[id])
+      .filter((p) => p.students.length > 0);
+
+    if (!eligible.length) {
+      alert("No periods have a roster filled in yet.");
+      return;
+    }
+
+    const container = getPrintAllContainer();
+    container.innerHTML = "";
+    eligible.forEach((p) => container.appendChild(buildPrintablePage(p, classroom)));
+
+    document.body.classList.add("printing-all");
+    window.print();
+  }
+
   function render(period, classroom) {
     const panel = el("div", { class: "panel seating-chart-panel" });
     panel.appendChild(el("div", { class: "section-title", text: "Seating Chart" }));
@@ -285,6 +407,12 @@ App.ui = App.ui || {};
         onclick: () => window.print(),
       }),
       el("button", {
+        text: "Print All Filled Periods",
+        title: "Print one page per period that has a roster",
+        disabled: !App.store.state.periodOrder.some((id) => App.store.state.periods[id].students.length > 0),
+        onclick: () => printAllFilledPeriods(classroom),
+      }),
+      el("button", {
         text: "Save as Image (JPG)",
         disabled: !Object.keys(period.assignment).length,
         onclick: () => downloadChartImage(period, classroom),
@@ -309,70 +437,9 @@ App.ui = App.ui || {};
       return panel;
     }
 
-    panel.appendChild(el("div", { class: "print-header" }, [
-      el("div", { class: "print-header-banner", text: "Whiteboard / Front of Class" }),
-      el("div", { class: "print-header-sub", text: classroom.className ? classroom.className + " — " + period.label : period.label }),
-    ]));
+    panel.appendChild(buildPrintHeader(period, classroom));
 
-    const conflicts = computeConflicts(period, classroom);
-    const thinGroups = computeThinGroups(period, classroom);
-    const tableNumbers = App.util.numberTables(classroom.layout);
-    const autoPhoneNumbers = classroom.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(classroom.layout) : null;
-    const layout = classroom.layout;
-    const grid = el("div", {
-      class: "room-grid",
-      style: `grid-template-columns: repeat(${layout.cols}, minmax(140px, 1fr)); grid-template-rows: repeat(${layout.rows}, auto);`,
-    });
-
-    for (let r = 0; r < layout.rows; r++) {
-      for (let c = 0; c < layout.cols; c++) {
-        const group = layout.groups.find((g) => g.row === r && g.col === c);
-        if (!group) {
-          grid.appendChild(el("div", { class: "table-group blank" }));
-          continue;
-        }
-        const capacity = App.seating.groupCapacity(group);
-        const seatGrid = el("div", {
-          class: "seat-grid",
-          style: `grid-template-columns: repeat(${group.seatCols}, 1fr);`,
-        });
-        for (let i = 0; i < capacity; i++) {
-          const sid = App.seating.seatId(group.id, i);
-          const studentId = period.assignment[sid];
-          const student = studentId ? period.students.find((s) => s.id === studentId) : null;
-          const marker = App.util.getSeatMarker(classroom, i);
-          const markerBadge = marker.type === "color"
-            ? el("span", { class: "color-badge", style: "background:" + marker.swatch, title: marker.label })
-            : el("span", { class: "suit-badge suit-" + marker.textColor, text: marker.symbol });
-          const phoneLine = autoPhoneNumbers
-            ? "#" + autoPhoneNumbers[sid]
-            : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
-          const classes = ["seat"];
-          if (student) classes.push("filled");
-          if (conflicts.has(sid)) classes.push("conflict");
-          seatGrid.appendChild(el("div", {
-            class: classes.join(" "),
-            "data-seat-id": sid,
-          }, [
-            markerBadge,
-            el("span", { class: "seat-name", text: student ? fullName(student) : "Empty" }),
-            phoneLine ? el("span", { class: "seat-phone", text: phoneLine }) : null,
-          ]));
-        }
-        const isThin = thinGroups.has(group.id);
-        grid.appendChild(el("div", { class: "table-group" + (group.isFront ? " front" : "") + (isThin ? " thin" : "") }, [
-          el("div", { class: "table-header" }, [
-            el("span", { class: group.isFront ? "front-tag" : "" }, [
-              group.isFront ? el("span", { class: "front-word", text: "Front " }) : null,
-              "Table " + tableNumbers[group.id],
-            ]),
-            isThin ? el("span", { class: "thin-tag", text: "Below min" }) : null,
-          ]),
-          seatGrid,
-        ]));
-      }
-    }
-
+    const grid = buildSeatingGrid(period, classroom, { interactive: true });
     panel.appendChild(grid);
     panel.appendChild(el("div", { class: "legend" }, [
       el("span", {}, [el("span", { class: "swatch", style: "background: var(--front-badge)" }), "Front table"]),
@@ -380,8 +447,6 @@ App.ui = App.ui || {};
       el("span", {}, [el("span", { class: "swatch", style: "background: var(--warning)" }), "Below preferred minimum per table"]),
       el("span", {}, ["Drag a seated student onto another seat to swap them."]),
     ]));
-
-    App.dnd.attach(grid, (fromId, toId) => swapSeats(period.id, fromId, toId));
 
     return panel;
   }
