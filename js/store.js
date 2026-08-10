@@ -13,6 +13,7 @@ window.App = window.App || {};
     return {
       id: uid("period"),
       label: "Period " + index,
+      courseName: "", // e.g. "IM2" — shown next to the period on the printed chart
       students: [],
       avoidPairs: [],
       mustPairs: [],
@@ -96,13 +97,22 @@ window.App = window.App || {};
     return state;
   }
 
+  // Same idea for fields added to periods after the fact (e.g. course name).
+  function ensurePeriodDefaults(state) {
+    state.periodOrder.forEach((id) => {
+      const p = state.periods[id];
+      if (typeof p.courseName !== "string") p.courseName = "";
+    });
+    return state;
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState();
       const parsed = JSON.parse(raw);
       if (!parsed || !parsed.periods || !parsed.periodOrder) return defaultState();
-      return ensureClassroomDefaults(migrateToSixPeriods(migrateToSharedClassroom(parsed)));
+      return ensurePeriodDefaults(ensureClassroomDefaults(migrateToSixPeriods(migrateToSharedClassroom(parsed))));
     } catch (e) {
       console.error("Failed to load saved data, starting fresh.", e);
       return defaultState();

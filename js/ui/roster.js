@@ -30,6 +30,17 @@ App.ui = App.ui || {};
     const panel = el("div", { class: "panel" });
     panel.appendChild(el("div", { class: "section-title", text: "Roster — " + period.students.length + " students" }));
 
+    const courseNameInput = el("input", { type: "text", placeholder: "e.g., IM2", value: period.courseName || "", style: "width: 200px;" });
+    courseNameInput.addEventListener("change", () => {
+      App.store.update((state) => {
+        state.periods[period.id].courseName = courseNameInput.value.trim();
+      });
+    });
+    panel.appendChild(el("div", { class: "layout-config-row" }, [
+      el("div", { class: "field" }, [el("label", { text: "Course name" }), courseNameInput]),
+    ]));
+    panel.appendChild(el("div", { class: "hint", text: `Shown on the printed chart, e.g. "${period.label} - IM2".` }));
+
     function addParsedStudents(parsed) {
       if (!parsed.length) {
         alert("No students found in that file.");

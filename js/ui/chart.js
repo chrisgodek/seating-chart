@@ -5,6 +5,13 @@ App.ui = App.ui || {};
   const { el, fullName } = App.util;
   const lastUnmetByPeriod = {};
 
+  // e.g. "Mr. Godek's Class — Period 1 - IM2" (class name and course name are
+  // both optional; either or both can be left blank).
+  function printLabel(period, classroom) {
+    const periodPart = period.courseName ? period.label + " - " + period.courseName : period.label;
+    return classroom.className ? classroom.className + " — " + periodPart : periodPart;
+  }
+
   function computeConflicts(period, classroom) {
     const conflictSeats = new Set();
     const seatOf = {}; // studentId -> {sid, groupId}
@@ -135,7 +142,7 @@ App.ui = App.ui || {};
     ctx.strokeStyle = "#000000";
     ctx.stroke();
     ctx.font = "700 20px " + FONT;
-    ctx.fillText(classroom.className ? classroom.className + " — " + period.label : period.label, width / 2, MARGIN + 74);
+    ctx.fillText(printLabel(period, classroom), width / 2, MARGIN + 74);
 
     const tableNumbers = App.util.numberTables(layout);
     const autoPhoneNumbers = classroom.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(layout) : null;
@@ -298,7 +305,7 @@ App.ui = App.ui || {};
   function buildPrintHeader(period, classroom) {
     return el("div", { class: "print-header" }, [
       el("div", { class: "print-header-banner", text: "Whiteboard / Front of Class" }),
-      el("div", { class: "print-header-sub", text: classroom.className ? classroom.className + " — " + period.label : period.label }),
+      el("div", { class: "print-header-sub", text: printLabel(period, classroom) }),
     ]);
   }
 
