@@ -235,7 +235,10 @@ window.App = window.App || {};
     const groupsByRow = layout.groups.slice().sort((a, b) => (a.row - b.row) || (a.col - b.col));
     const frontGroups = groupsByRow.filter((g) => g.isFront);
 
-    const sorted = period.students.slice().sort((a, b) => App.util.fullName(a).localeCompare(App.util.fullName(b)));
+    const sortBy = classroom.alphabetizeBy === "last" ? "last" : "first";
+    const sorted = period.students.slice().sort((a, b) =>
+      App.util.sortableName(a, sortBy).localeCompare(App.util.sortableName(b, sortBy))
+    );
     if (direction === "desc") sorted.reverse();
 
     const assignment = {};

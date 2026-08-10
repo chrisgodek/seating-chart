@@ -367,6 +367,15 @@ App.ui = App.ui || {};
           });
         },
       }),
+      el("select", {
+        title: "Sort A→Z / Z→A by first or last name",
+        onchange: (e) => {
+          App.store.update((state) => { state.classroom.alphabetizeBy = e.target.value; });
+        },
+      }, [
+        el("option", { value: "first", text: "First name", selected: classroom.alphabetizeBy !== "last" }),
+        el("option", { value: "last", text: "Last name", selected: classroom.alphabetizeBy === "last" }),
+      ]),
       el("button", {
         text: "A→Z",
         title: "Seat alphabetically by name",

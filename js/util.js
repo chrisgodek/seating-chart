@@ -5,6 +5,14 @@ window.App = window.App || {};
     return [student.firstName, student.lastName].filter(Boolean).join(" ").trim();
   }
 
+  // The string to alphabetize a student by — first name or last name led,
+  // with the other name as a tiebreaker. Used by the A→Z / Z→A seating modes.
+  function sortableName(student, by) {
+    const first = (student.firstName || "").trim();
+    const last = (student.lastName || "").trim();
+    return by === "last" ? [last, first].filter(Boolean).join(" ") : [first, last].filter(Boolean).join(" ");
+  }
+
   function formatTimestamp(iso) {
     if (!iso) return "—";
     const d = new Date(iso);
@@ -100,5 +108,5 @@ window.App = window.App || {};
     return node;
   }
 
-  App.util = { fullName, formatTimestamp, el, SUITS, COLORS, numberTables, suitForSeatIndex, colorForSeatIndex, getSeatMarker, computeAutoPhoneNumbers };
+  App.util = { fullName, sortableName, formatTimestamp, el, SUITS, COLORS, numberTables, suitForSeatIndex, colorForSeatIndex, getSeatMarker, computeAutoPhoneNumbers };
 })();
