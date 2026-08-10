@@ -5,6 +5,7 @@ App.ui = App.ui || {};
   const { el, fullName } = App.util;
   let selectedIds = new Set();
   let lastPeriodId = null;
+  let pasteBoxOpen = false;
 
   function toggleSelect(id) {
     if (selectedIds.has(id)) selectedIds.delete(id);
@@ -22,6 +23,7 @@ App.ui = App.ui || {};
   function render(period, classroom) {
     if (period.id !== lastPeriodId) {
       selectedIds.clear();
+      pasteBoxOpen = false;
       lastPeriodId = period.id;
     }
 
@@ -62,6 +64,10 @@ App.ui = App.ui || {};
     const toolbar = el("div", { class: "toolbar-row" }, [
       el("button", { text: "Upload Roster", onclick: () => fileInput.click() }),
       el("button", {
+        text: pasteBoxOpen ? "Cancel Paste" : "Paste List",
+        onclick: () => { pasteBoxOpen = !pasteBoxOpen; App.rerender(); },
+      }),
+      el("button", {
         class: "danger",
         text: "Clear Roster",
         disabled: !period.students.length,
@@ -82,6 +88,34 @@ App.ui = App.ui || {};
     ]);
     panel.appendChild(toolbar);
     panel.appendChild(el("div", { class: "hint", text: "CSV or a plain text file with one name per line." }));
+
+    if (pasteBoxOpen) {
+      const textarea = el("textarea", {
+        class: "paste-textarea",
+        rows: 6,
+        placeholder: "Paste names here, one per line — \"Alice Anderson\", \"Anderson, Alice\", or two columns copied straight from a spreadsheet.",
+      });
+      const addPastedBtn = el("button", {
+        class: "primary",
+        text: "Add Pasted Names",
+        onclick: () => {
+          const parsed = App.csv.parsePastedRoster(textarea.value);
+          if (!parsed.length) {
+            alert("No students found in that text.");
+            return;
+          }
+          pasteBoxOpen = false;
+          addParsedStudents(parsed);
+        },
+      });
+      panel.appendChild(el("div", { class: "paste-box" }, [
+        textarea,
+        el("div", { class: "toolbar-row" }, [
+          addPastedBtn,
+          el("button", { text: "Cancel", onclick: () => { pasteBoxOpen = false; App.rerender(); } }),
+        ]),
+      ]));
+    }
 
     const firstInput = el("input", { type: "text", placeholder: "First name" });
     const lastInput = el("input", { type: "text", placeholder: "Last name" });

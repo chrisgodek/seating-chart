@@ -73,7 +73,18 @@ window.App = window.App || {};
         else if (fullIdx === -1 && /name/.test(t)) fullIdx = i;
       });
     }
-    if (firstIdx === -1 && lastIdx === -1 && fullIdx === -1) fullIdx = 0;
+    if (firstIdx === -1 && lastIdx === -1 && fullIdx === -1) {
+      // No header to go by. If every row has exactly two columns, assume
+      // [First, Last] rather than treating column 1 as a full name and
+      // silently dropping column 2 (common when pasting two spreadsheet
+      // columns with no header row).
+      if (dataRows.length && dataRows.every((r) => r.length === 2)) {
+        firstIdx = 0;
+        lastIdx = 1;
+      } else {
+        fullIdx = 0;
+      }
+    }
 
     const students = [];
     for (const r of dataRows) {
@@ -107,5 +118,36 @@ window.App = window.App || {};
       .filter((s) => s.firstName || s.lastName);
   }
 
-  App.csv = { parseCSV, parseRoster, parseTextRoster };
+  // Parses a block of pasted text: one student per line, either a plain name
+  // ("First Last" or "Last, First") or two spreadsheet columns pasted with a
+  // tab between them (e.g. copied straight out of Excel/Sheets). Each line is
+  // judged on its own — unlike a real CSV file, a paste can freely mix plain
+  // names and tab-separated pairs line to line. A leading header line
+  // ("First Name\tLast Name") is detected and skipped.
+  function parsePastedRoster(text) {
+    const lines = text.split(/\r\n|\r|\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return [];
+
+    const firstLineIsHeader = lines[0].includes("\t") &&
+      lines[0].split("\t").some((f) => /^first\b|^last\b|name/i.test(f.trim()));
+    const dataLines = firstLineIsHeader ? lines.slice(1) : lines;
+
+    const students = [];
+    dataLines.forEach((line) => {
+      let firstName = "", lastName = "";
+      if (line.includes("\t")) {
+        const parts = line.split("\t").map((p) => p.trim());
+        firstName = parts[0] || "";
+        lastName = parts[1] || "";
+      } else {
+        const parsed = parseFullName(line);
+        firstName = parsed.firstName;
+        lastName = parsed.lastName;
+      }
+      if (firstName || lastName) students.push({ firstName, lastName });
+    });
+    return students;
+  }
+
+  App.csv = { parseCSV, parseRoster, parseTextRoster, parsePastedRoster };
 })();

@@ -87,7 +87,7 @@ button.danger:hover { background: var(--danger-soft); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 button.small { padding: 3px 8px; font-size: 12px; }
 
-input[type="text"], input[type="number"], select {
+input[type="text"], input[type="number"], select, textarea {
   font-family: inherit;
   font-size: 13px;
   padding: 6px 8px;
@@ -98,6 +98,14 @@ input[type="text"], input[type="number"], select {
 }
 input[type="checkbox"] { accent-color: var(--accent); }
 input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.paste-box { margin-bottom: 10px; }
+.paste-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  margin-bottom: 8px;
+}
 
 .panel {
   background: var(--panel);
