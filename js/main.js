@@ -5,6 +5,7 @@
     const state = App.store.state;
     const period = App.store.getActivePeriod();
     const classroom = App.store.getClassroom();
+    document.documentElement.style.setProperty("--print-scale", String(App.util.printFontScale(classroom)));
     const root = document.getElementById("app");
     root.innerHTML = "";
 

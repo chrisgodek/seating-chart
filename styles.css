@@ -477,7 +477,7 @@ input:disabled { opacity: 0.45; cursor: not-allowed; }
     margin-bottom: 18px;
   }
   .print-header-banner {
-    font-size: 28px;
+    font-size: calc(28px * var(--print-scale, 1.3)) !important;
     font-weight: 800;
     letter-spacing: 0.02em;
     border-bottom: 3px solid #000;
@@ -485,7 +485,7 @@ input:disabled { opacity: 0.45; cursor: not-allowed; }
   }
   .print-header-sub {
     margin-top: 8px;
-    font-size: 20px;
+    font-size: calc(20px * var(--print-scale, 1.3)) !important;
     font-weight: 700;
     color: #000;
   }
@@ -500,6 +500,19 @@ input:disabled { opacity: 0.45; cursor: not-allowed; }
   }
   .table-group.blank { border: none !important; }
   .room-grid { background: none !important; border: none !important; }
+
+  /* Print/saved-image text size — scaled by --print-scale (set from the
+     "Print font size" picker). Base numbers here are the old screen sizes;
+     "Normal" (1.3x) is already a real step up from them. !important beats the
+     more-specific screen-only rules that would otherwise still apply here. */
+  .table-header { font-size: calc(11px * var(--print-scale, 1.3)) !important; }
+  .seat { font-size: calc(11px * var(--print-scale, 1.3)) !important; }
+  .seat-phone { font-size: calc(9px * var(--print-scale, 1.3)) !important; }
+  .suit-badge { font-size: calc(12px * var(--print-scale, 1.3)) !important; }
+  .color-badge {
+    width: calc(11px * var(--print-scale, 1.3)) !important;
+    height: calc(11px * var(--print-scale, 1.3)) !important;
+  }
 
   /* "Print All Filled Periods" swaps in a container with one page per period
      instead of the single live chart. */

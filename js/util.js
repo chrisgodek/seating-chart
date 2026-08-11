@@ -13,6 +13,14 @@ window.App = window.App || {};
     return by === "last" ? [last, first].filter(Boolean).join(" ") : [first, last].filter(Boolean).join(" ");
   }
 
+  // Text-size multiplier for print & the saved image, applied on top of the
+  // (small, screen-oriented) base sizes so print output reads clearly from a
+  // distance. "Normal" is already a real step up from the on-screen size.
+  const PRINT_FONT_SCALES = { normal: 1.3, large: 1.6, xlarge: 2 };
+  function printFontScale(classroom) {
+    return PRINT_FONT_SCALES[classroom.printFontSize] || PRINT_FONT_SCALES.normal;
+  }
+
   function formatTimestamp(iso) {
     if (!iso) return "—";
     const d = new Date(iso);
@@ -108,5 +116,5 @@ window.App = window.App || {};
     return node;
   }
 
-  App.util = { fullName, sortableName, formatTimestamp, el, SUITS, COLORS, numberTables, suitForSeatIndex, colorForSeatIndex, getSeatMarker, computeAutoPhoneNumbers };
+  App.util = { fullName, sortableName, formatTimestamp, el, SUITS, COLORS, numberTables, suitForSeatIndex, colorForSeatIndex, getSeatMarker, computeAutoPhoneNumbers, printFontScale, PRINT_FONT_SCALES };
 })();

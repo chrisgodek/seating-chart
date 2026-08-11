@@ -108,8 +108,9 @@ App.ui = App.ui || {};
   // highlighting, no "Front" word — just the room, tables, and students.
   function buildChartCanvas(period, classroom) {
     const SCALE = 2;
-    const SEAT_W = 130, SEAT_H = 66, SEAT_GAP = 8;
-    const TABLE_PAD = 14, HEADER_H = 26, TABLE_GAP = 26, MARGIN = 36, BANNER_H = 96;
+    const S = App.util.printFontScale(classroom); // same "Print font size" setting as the printout
+    const SEAT_W = 130 * S, SEAT_H = 66 * S, SEAT_GAP = 8 * S;
+    const TABLE_PAD = 14 * S, HEADER_H = 26 * S, TABLE_GAP = 26 * S, MARGIN = 36 * S, BANNER_H = 96 * S;
 
     const layout = classroom.layout;
     const groups = layout.groups;
@@ -133,16 +134,16 @@ App.ui = App.ui || {};
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#000000";
-    ctx.font = "800 30px " + FONT;
-    ctx.fillText("Whiteboard / Front of Class", width / 2, MARGIN + 30);
+    ctx.font = "800 " + Math.round(30 * S) + "px " + FONT;
+    ctx.fillText("Whiteboard / Front of Class", width / 2, MARGIN + 30 * S);
     ctx.beginPath();
-    ctx.moveTo(MARGIN, MARGIN + 44);
-    ctx.lineTo(width - MARGIN, MARGIN + 44);
+    ctx.moveTo(MARGIN, MARGIN + 44 * S);
+    ctx.lineTo(width - MARGIN, MARGIN + 44 * S);
     ctx.lineWidth = 3;
     ctx.strokeStyle = "#000000";
     ctx.stroke();
-    ctx.font = "700 20px " + FONT;
-    ctx.fillText(printLabel(period, classroom), width / 2, MARGIN + 74);
+    ctx.font = "700 " + Math.round(20 * S) + "px " + FONT;
+    ctx.fillText(printLabel(period, classroom), width / 2, MARGIN + 74 * S);
 
     const tableNumbers = App.util.numberTables(layout);
     const autoPhoneNumbers = classroom.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(layout) : null;
@@ -155,13 +156,13 @@ App.ui = App.ui || {};
 
       ctx.strokeStyle = g.isFront ? "#b5750a" : "#000000";
       ctx.lineWidth = 2;
-      roundRect(ctx, x, y, tableW, tableH, 10);
+      roundRect(ctx, x, y, tableW, tableH, 10 * S);
       ctx.stroke();
 
       ctx.textAlign = "left";
       ctx.fillStyle = g.isFront ? "#b5750a" : "#000000";
-      ctx.font = "700 14px " + FONT;
-      ctx.fillText("Table " + tableNumbers[g.id], x + TABLE_PAD, y + 20);
+      ctx.font = "700 " + Math.round(14 * S) + "px " + FONT;
+      ctx.fillText("Table " + tableNumbers[g.id], x + TABLE_PAD, y + 20 * S);
 
       const capacity = App.seating.groupCapacity(g);
       for (let i = 0; i < capacity; i++) {
@@ -173,7 +174,7 @@ App.ui = App.ui || {};
         ctx.fillStyle = "#ffffff";
         ctx.strokeStyle = "#999999";
         ctx.lineWidth = 1.5;
-        roundRect(ctx, sx, sy, SEAT_W, SEAT_H, 6);
+        roundRect(ctx, sx, sy, SEAT_W, SEAT_H, 6 * S);
         ctx.fill();
         ctx.stroke();
 
@@ -184,7 +185,7 @@ App.ui = App.ui || {};
 
         if (marker.type === "color") {
           ctx.beginPath();
-          ctx.arc(sx + SEAT_W - 13, sy + 13, 6, 0, Math.PI * 2);
+          ctx.arc(sx + SEAT_W - 13 * S, sy + 13 * S, 6 * S, 0, Math.PI * 2);
           ctx.fillStyle = marker.swatch;
           ctx.fill();
           ctx.lineWidth = 1;
@@ -193,22 +194,22 @@ App.ui = App.ui || {};
         } else {
           ctx.textAlign = "right";
           ctx.fillStyle = marker.textColor === "red" ? "#c0392b" : "#000000";
-          ctx.font = "700 13px " + FONT;
-          ctx.fillText(marker.symbol, sx + SEAT_W - 8, sy + 17);
+          ctx.font = "700 " + Math.round(13 * S) + "px " + FONT;
+          ctx.fillText(marker.symbol, sx + SEAT_W - 8 * S, sy + 17 * S);
         }
 
         ctx.textAlign = "center";
         ctx.fillStyle = "#000000";
-        ctx.font = "600 13px " + FONT;
-        wrapText(ctx, student ? fullName(student) : "Empty", sx + SEAT_W / 2, sy + SEAT_H / 2 - 2, SEAT_W - 16, 15);
+        ctx.font = "600 " + Math.round(13 * S) + "px " + FONT;
+        wrapText(ctx, student ? fullName(student) : "Empty", sx + SEAT_W / 2, sy + SEAT_H / 2 - 2 * S, SEAT_W - 16 * S, 15 * S);
 
         const phoneLine = autoPhoneNumbers
           ? "#" + autoPhoneNumbers[sid]
           : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
         if (phoneLine) {
-          ctx.font = "400 11px " + FONT;
+          ctx.font = "400 " + Math.round(11 * S) + "px " + FONT;
           ctx.fillStyle = "#555555";
-          ctx.fillText(phoneLine, sx + SEAT_W / 2, sy + SEAT_H - 8);
+          ctx.fillText(phoneLine, sx + SEAT_W / 2, sy + SEAT_H - 8 * S);
         }
       }
     });
@@ -417,6 +418,18 @@ App.ui = App.ui || {};
           App.store.update((state) => { state.periods[period.id].assignment = {}; });
         },
       }),
+      el("select", {
+        title: "Print & saved-image text size",
+        onchange: (e) => {
+          App.store.update((state) => { state.classroom.printFontSize = e.target.value; });
+        },
+      }, Object.keys(App.util.PRINT_FONT_SCALES).map((key) =>
+        el("option", {
+          value: key,
+          text: key === "normal" ? "Normal text" : key === "large" ? "Large text" : "Extra large text",
+          selected: (classroom.printFontSize || "normal") === key,
+        })
+      )),
       el("button", {
         text: "Print",
         disabled: !Object.keys(period.assignment).length,

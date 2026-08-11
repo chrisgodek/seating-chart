@@ -33,6 +33,7 @@ window.App = window.App || {};
       colorPattern: ["blue", "yellow", "green", "red"],
       autoAssignPhoneNumbers: false,
       alphabetizeBy: "first", // "first" or "last" — used by the A→Z / Z→A seating buttons
+      printFontSize: "normal", // "normal" | "large" | "xlarge" — print & saved-image text size
     };
   }
 
