@@ -480,5 +480,9 @@ App.ui = App.ui || {};
     return panel;
   }
 
-  App.ui.chart = { render, clearWarning: (periodId) => { delete lastUnmetByPeriod[periodId]; } };
+  App.ui.chart = {
+    render,
+    clearWarning: (periodId) => { delete lastUnmetByPeriod[periodId]; },
+    setWarning: (periodId, unmet) => { lastUnmetByPeriod[periodId] = unmet; },
+  };
 })();

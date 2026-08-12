@@ -267,5 +267,63 @@ window.App = window.App || {};
     };
   }
 
-  App.seating = { seatId, groupCapacity, assignSeats, assignSeatsOrdered };
+  // Seats only the currently-unseated students (e.g. someone who just joined
+  // the roster) into open seats, without moving anyone who's already seated.
+  // Returns the same shape as assignSeats(). If no one is unseated, or there's
+  // no room set up, `assignment` comes back unchanged.
+  function seatNewStudents(period, classroom) {
+    const layout = classroom.layout;
+    const preferredMax = classroom.preferredPerTable || 4;
+
+    const assignment = Object.assign({}, period.assignment);
+    const seatedIds = new Set(Object.values(assignment));
+    const unseated = period.students.filter((s) => !seatedIds.has(s.id));
+
+    if (!unseated.length || !layout.groups.length) {
+      return { assignment, unmet: { unplacedIds: unseated.map((s) => s.id), avoidViolations: [], frontOverflowCount: 0 } };
+    }
+
+    const groupsByRow = layout.groups.slice().sort((a, b) => (a.row - b.row) || (a.col - b.col));
+    const frontGroups = groupsByRow.filter((g) => g.isFront);
+
+    const usedIds = new Set(seatedIds);
+    // Newly-added front-priority students claim open front seats first...
+    const frontQueue = unseated.filter((s) => s.front);
+    fillInOrder(frontGroups, frontQueue, assignment, usedIds, preferredMax);
+    // ...then everyone still unseated fills whatever's left, front tables included.
+    fillInOrder(groupsByRow, unseated, assignment, usedIds, preferredMax);
+
+    const unplacedIds = unseated.filter((s) => !usedIds.has(s.id)).map((s) => s.id);
+    let frontOverflowCount = 0;
+    frontQueue.forEach((s) => {
+      const seatEntry = Object.keys(assignment).find((sid) => assignment[sid] === s.id);
+      const groupId = seatEntry ? seatEntry.split(":")[0] : null;
+      const group = groupId ? layout.groups.find((g) => g.id === groupId) : null;
+      if (!group || !group.isFront) frontOverflowCount++;
+    });
+
+    // Report any avoid-pair conflicts the new placement created (against
+    // existing occupants too, not just other newcomers).
+    const avoidSet = new Set();
+    (period.avoidPairs || []).forEach(([a, b]) => avoidSet.add(a + "|" + b));
+    const avoidViolations = [];
+    layout.groups.forEach((g) => {
+      const cap = groupCapacity(g);
+      const occupants = [];
+      for (let i = 0; i < cap; i++) {
+        const sid = seatId(g.id, i);
+        if (assignment[sid]) occupants.push(assignment[sid]);
+      }
+      for (let i = 0; i < occupants.length; i++) {
+        for (let j = i + 1; j < occupants.length; j++) {
+          const a = occupants[i], b = occupants[j];
+          if (avoidSet.has(a + "|" + b) || avoidSet.has(b + "|" + a)) avoidViolations.push([a, b]);
+        }
+      }
+    });
+
+    return { assignment, unmet: { unplacedIds, avoidViolations, frontOverflowCount } };
+  }
+
+  App.seating = { seatId, groupCapacity, assignSeats, assignSeatsOrdered, seatNewStudents };
 })();

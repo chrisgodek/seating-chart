@@ -41,6 +41,21 @@ App.ui = App.ui || {};
     ]));
     panel.appendChild(el("div", { class: "hint", text: `Shown on the printed chart, e.g. "${period.label} - IM2".` }));
 
+    // If this period already has a seating chart in progress, slot newly-added
+    // students into whatever open seats are left instead of leaving them
+    // un-seated — without moving anyone who's already seated.
+    function seatIfChartExists(state, p) {
+      if (!Object.keys(p.assignment).length) return;
+      const result = App.seating.seatNewStudents(p, state.classroom);
+      p.assignment = result.assignment;
+      const unmet = result.unmet;
+      if (unmet.unplacedIds.length || unmet.avoidViolations.length || unmet.frontOverflowCount) {
+        App.ui.chart.setWarning(period.id, unmet);
+      } else {
+        App.ui.chart.clearWarning(period.id);
+      }
+    }
+
     function addParsedStudents(parsed) {
       if (!parsed.length) {
         alert("No students found in that file.");
@@ -55,6 +70,7 @@ App.ui = App.ui || {};
           existing.add(key);
           p.students.push({ id: App.store.uid("student"), firstName: s.firstName, lastName: s.lastName, front: false, phoneNumber: "" });
         });
+        seatIfChartExists(state, p);
       });
     }
 
@@ -135,7 +151,9 @@ App.ui = App.ui || {};
       const lastName = lastInput.value.trim();
       if (!firstName && !lastName) return;
       App.store.update((state) => {
-        state.periods[period.id].students.push({ id: App.store.uid("student"), firstName, lastName, front: false, phoneNumber: "" });
+        const p = state.periods[period.id];
+        p.students.push({ id: App.store.uid("student"), firstName, lastName, front: false, phoneNumber: "" });
+        seatIfChartExists(state, p);
       });
     };
     firstInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addStudent(); });
