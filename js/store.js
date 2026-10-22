@@ -35,6 +35,7 @@ window.App = window.App || {};
       alphabetizeBy: "first", // "first" or "last" — used by the A→Z / Z→A seating buttons
       printFontSize: "normal", // "normal" | "large" | "xlarge" — print & saved-image text size
       nameDisplay: "full", // "full" or "first" — first names only (full name when a first name repeats)
+      slideLayout: "room", // "room" or "list" — slide image with an alphabetical find-your-seat list
       chartView: "student", // "student" (front at top) | "teacher" (turned 180°) | "mirror" (left↔right)
     };
   }

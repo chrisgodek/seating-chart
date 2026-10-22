@@ -121,6 +121,87 @@ App.ui = App.ui || {};
     return best;
   }
 
+  // Alphabetical "Name ...... Table 3 ♠" list of every seated student, laid
+  // out in however many columns lets the text be largest.
+  function drawSeatList(ctx, period, classroom, names, tableNumbers, x0, y0, w, h) {
+    const entries = [];
+    classroom.layout.groups.forEach((g) => {
+      const capacity = App.seating.groupCapacity(g);
+      for (let i = 0; i < capacity; i++) {
+        const studentId = period.assignment[App.seating.seatId(g.id, i)];
+        if (!studentId || !names[studentId]) continue;
+        entries.push({ name: names[studentId], table: "Table " + tableNumbers[g.id], marker: App.util.getSeatMarker(classroom, i) });
+      }
+    });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#000000";
+    ctx.font = "800 40px " + FONT;
+    ctx.fillText("Find your seat", x0, y0 + 40);
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0 + 58);
+    ctx.lineTo(x0 + w, y0 + 58);
+    ctx.stroke();
+    if (!entries.length) return;
+
+    const top = y0 + 76, areaH = y0 + h - top;
+    const COL_GAP = 36;
+    const measure = (text, weight) => { ctx.font = weight + " 100px " + FONT; return ctx.measureText(text).width; };
+    const nameW = Math.max(...entries.map((e) => measure(e.name, "600")));
+    const tableW = Math.max(...entries.map((e) => measure(e.table, "700")));
+    const entryW = nameW + tableW + 100 * 1.6; // gap + seat marker, at 100px
+
+    let best = null;
+    for (let cols = 1; cols <= 4; cols++) {
+      const rows = Math.ceil(entries.length / cols);
+      const colW = (w - (cols - 1) * COL_GAP) / cols;
+      const size = Math.min(48, (areaH / rows) * 0.62, (100 * colW) / entryW);
+      if (!best || size > best.size) best = { cols, rows, colW, size };
+    }
+    const { rows, colW, size } = best;
+    const rowH = Math.min(areaH / rows, size * 1.7);
+
+    entries.forEach((e, idx) => {
+      const col = Math.floor(idx / rows), row = idx % rows;
+      const ex = x0 + col * (colW + COL_GAP);
+      const ey = top + row * rowH;
+      if (row % 2 === 0) {
+        ctx.fillStyle = "#f0f0f0";
+        roundRect(ctx, ex - 8, ey, colW + 16, rowH, 6);
+        ctx.fill();
+      }
+      const baseline = ey + rowH / 2 + size * 0.36;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#000000";
+      ctx.font = "600 " + size + "px " + FONT;
+      ctx.fillText(e.name, ex, baseline);
+
+      const markerX = ex + colW - size * 0.45;
+      if (e.marker.type === "color") {
+        ctx.beginPath();
+        ctx.arc(markerX, ey + rowH / 2, size * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = e.marker.swatch;
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.stroke();
+      } else {
+        ctx.textAlign = "center";
+        ctx.fillStyle = e.marker.textColor === "red" ? "#c0392b" : "#000000";
+        ctx.font = "700 " + size + "px " + FONT;
+        ctx.fillText(e.marker.symbol, markerX, baseline);
+      }
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#000000";
+      ctx.font = "700 " + size + "px " + FONT;
+      ctx.fillText(e.table, ex + colW - size * 1.1, baseline);
+    });
+  }
+
   // Draws the seating chart fresh onto a canvas (not a DOM screenshot), so the
   // exported image follows the same "clean" rules as print: no conflict/thin
   // highlighting, no "Front" word — just the room, tables, and students.
@@ -134,7 +215,11 @@ App.ui = App.ui || {};
     const names = App.util.displayNameMap(period.students, classroom.nameDisplay);
 
     // Room geometry in base units; G scales all of it.
-    const SEAT_W = 130, SEAT_H = 66, SEAT_GAP = 8, TABLE_PAD = 14, HEADER_H = 26, TABLE_GAP = 26;
+    // Slides get a taller table header and bigger table numbers / seat symbols
+    // so they read from the back of the room.
+    const SEAT_W = 130, SEAT_H = 66, SEAT_GAP = 8, TABLE_PAD = 14, TABLE_GAP = 26;
+    const HEADER_H = slide ? 40 : 26;
+    const tableFont = slide ? 26 : 14, markerFont = slide ? 24 : 13, markerInset = slide ? 16 : 13;
     const layout = classroom.layout;
     const groups = layout.groups;
     const maxSeatCols = Math.max(1, ...groups.map((g) => g.seatCols));
@@ -144,11 +229,16 @@ App.ui = App.ui || {};
     const gridW = layout.cols * cellW + Math.max(0, layout.cols - 1) * TABLE_GAP;
     const gridH = layout.rows * cellH + Math.max(0, layout.rows - 1) * TABLE_GAP;
 
+    // "Room + name list" slides keep the room on the right and fill the rest
+    // with an alphabetical find-your-seat list — handy for tall rooms that
+    // would otherwise leave most of a 16:9 slide empty.
+    const withList = slide && classroom.slideLayout === "list";
     let width, height, G, margin, frontFont, labelFont, frontH, labelH;
     if (slide) {
       width = 1920; height = 1080; margin = 36;
       frontFont = 40; labelFont = 32; frontH = 72; labelH = 52;
-      G = Math.min((width - margin * 2) / gridW, (height - margin * 2 - frontH - labelH) / gridH);
+      const roomMaxW = (width - margin * 2) * (withList ? 0.6 : 1);
+      G = Math.min(roomMaxW / gridW, (height - margin * 2 - frontH - labelH) / gridH);
     } else {
       const S = App.util.printFontScale(classroom); // same "Print font size" setting as the printout
       G = S; margin = 36 * S;
@@ -166,6 +256,12 @@ App.ui = App.ui || {};
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);
 
+    // Horizontal span of the room (and its banner/label): the whole width, or
+    // the right part when the name list takes the left side.
+    const roomX1 = width - margin;
+    const roomX0 = withList ? Math.min(roomX1 - gridW * G, roomX1 - 620) : margin;
+    const roomMid = (roomX0 + roomX1) / 2;
+
     // Student view: whiteboard banner, then period label, then the room.
     // Teacher view: period label, the room, then the whiteboard at the bottom.
     function drawFrontBanner(y0, lineOnTop) {
@@ -177,10 +273,10 @@ App.ui = App.ui || {};
       const lineY = lineOnTop ? y0 + frontH * 0.15 : y0 + frontH * 0.8;
       const textY = lineOnTop ? y0 + frontH * 0.15 + frontFont * 1.25 : y0 + frontFont;
       ctx.font = "800 " + Math.round(frontFont) + "px " + FONT;
-      ctx.fillText("Whiteboard / Front of Class", width / 2, textY);
+      ctx.fillText("Whiteboard / Front of Class", roomMid, textY);
       ctx.beginPath();
-      ctx.moveTo(margin, lineY);
-      ctx.lineTo(width - margin, lineY);
+      ctx.moveTo(roomX0, lineY);
+      ctx.lineTo(roomX1, lineY);
       ctx.stroke();
     }
     function drawLabel(y0) {
@@ -188,7 +284,7 @@ App.ui = App.ui || {};
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = "#000000";
       ctx.font = "700 " + Math.round(labelFont) + "px " + FONT;
-      ctx.fillText(printLabel(period, classroom), width / 2, y0 + labelFont);
+      ctx.fillText(printLabel(period, classroom), roomMid, y0 + labelFont);
     }
 
     let gridTop;
@@ -202,7 +298,7 @@ App.ui = App.ui || {};
       gridTop = margin + frontH + labelH;
     }
     const availH = height - margin * 2 - frontH - labelH;
-    const gridX = (width - gridW * G) / 2;
+    const gridX = roomMid - (gridW * G) / 2;
     const gridY = gridTop + (availH - gridH * G) / 2;
 
     const tableNumbers = App.util.numberTables(layout);
@@ -224,8 +320,8 @@ App.ui = App.ui || {};
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = g.isFront ? "#b5750a" : "#000000";
-      ctx.font = "700 " + Math.round(14 * G) + "px " + FONT;
-      ctx.fillText("Table " + tableNumbers[g.id], x + TABLE_PAD * G, y + 20 * G);
+      ctx.font = "800 " + Math.round(tableFont * G) + "px " + FONT;
+      ctx.fillText("Table " + tableNumbers[g.id], x + TABLE_PAD * G, y + (HEADER_H - 6) * G);
 
       const capacity = App.seating.groupCapacity(g);
       const seatW = SEAT_W * G, seatH = SEAT_H * G;
@@ -251,7 +347,7 @@ App.ui = App.ui || {};
 
         if (marker.type === "color") {
           ctx.beginPath();
-          ctx.arc(sx + seatW - 13 * G, sy + 13 * G, 6 * G, 0, Math.PI * 2);
+          ctx.arc(sx + seatW - markerInset * G, sy + markerInset * G, markerFont * 0.45 * G, 0, Math.PI * 2);
           ctx.fillStyle = marker.swatch;
           ctx.fill();
           ctx.lineWidth = 1;
@@ -261,8 +357,8 @@ App.ui = App.ui || {};
           ctx.textAlign = "right";
           ctx.textBaseline = "alphabetic";
           ctx.fillStyle = marker.textColor === "red" ? "#c0392b" : "#000000";
-          ctx.font = "700 " + Math.round(13 * G) + "px " + FONT;
-          ctx.fillText(marker.symbol, sx + seatW - 8 * G, sy + 17 * G);
+          ctx.font = "700 " + Math.round(markerFont * G) + "px " + FONT;
+          ctx.fillText(marker.symbol, sx + seatW - 6 * G, sy + (markerFont + 3) * G);
         }
 
         const phoneLine = autoPhoneNumbers
@@ -274,12 +370,14 @@ App.ui = App.ui || {};
         ctx.fillStyle = "#000000";
         if (slide) {
           if (student) {
-            const fit = fitName(ctx, names[student.id] || "(unnamed)", seatW - 40 * G, seatH - phoneBand - 6 * G, "700");
+            // Name box sits left of the seat symbol in the top-right corner.
+            const boxW = seatW - 38 * G, boxCx = sx + 6 * G + boxW / 2;
+            const fit = fitName(ctx, names[student.id] || "(unnamed)", boxW, seatH - phoneBand - 6 * G, "700");
             ctx.font = "700 " + fit.size + "px " + FONT;
             ctx.textBaseline = "middle";
             const lineH = fit.size * 1.1;
             const cy = sy + (seatH - phoneBand) / 2 + 2 * G;
-            fit.lines.forEach((line, li) => ctx.fillText(line, sx + seatW / 2, cy + (li - (fit.lines.length - 1) / 2) * lineH));
+            fit.lines.forEach((line, li) => ctx.fillText(line, boxCx, cy + (li - (fit.lines.length - 1) / 2) * lineH));
             ctx.textBaseline = "alphabetic";
           }
         } else {
@@ -296,6 +394,8 @@ App.ui = App.ui || {};
         }
       }
     });
+
+    if (withList) drawSeatList(ctx, period, classroom, names, tableNumbers, margin, margin, roomX0 - 56 - margin, height - margin * 2);
 
     return canvas;
   }
@@ -597,6 +697,13 @@ App.ui = App.ui || {};
         disabled: !hasAssignment,
         onclick: () => downloadChartImage(period, classroom),
       }),
+      el("select", {
+        title: "What goes on the slide image",
+        onchange: setClassroom("slideLayout"),
+      }, [
+        el("option", { value: "room", text: "Slide: room only", selected: classroom.slideLayout !== "list" }),
+        el("option", { value: "list", text: "Slide: room + name list", selected: classroom.slideLayout === "list" }),
+      ]),
       el("button", {
         text: "Copy for Slides",
         title: "Copy a 16:9 slide image of the chart, then paste it into Google Slides",
