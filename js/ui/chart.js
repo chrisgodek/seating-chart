@@ -264,8 +264,22 @@ App.ui = App.ui || {};
 
     // Horizontal span of the room (and its banner/label): the whole width, or
     // the right part when the name list takes the left side.
+    // With the list, the room's side is made wide enough for the room and
+    // its two headings (up to 60% of the slide); a heading that still doesn't
+    // fit is shrunk so it never runs into the list.
+    const labelText = printLabel(period, classroom);
+    const textW = (text, px, weight) => { ctx.font = weight + " " + px + "px " + FONT; return ctx.measureText(text).width; };
     const roomX1 = width - margin;
-    const roomX0 = withList ? Math.min(roomX1 - gridW * G, roomX1 - 620) : margin;
+    let roomX0 = margin;
+    if (withList) {
+      const needed = Math.max(gridW * G, textW("Whiteboard / Front of Class", frontFont, "800"), textW(labelText, labelFont, "700")) + 24;
+      roomX0 = roomX1 - Math.min(needed, (width - margin * 2) * 0.6);
+    }
+    const roomSpan = roomX1 - roomX0;
+    const labelW = textW(labelText, labelFont, "700");
+    if (labelW > roomSpan) labelFont *= roomSpan / labelW;
+    const bannerW = textW("Whiteboard / Front of Class", frontFont, "800");
+    if (bannerW > roomSpan) frontFont *= roomSpan / bannerW;
     const roomMid = (roomX0 + roomX1) / 2;
 
     // Student view: whiteboard banner, then period label, then the room.
@@ -290,7 +304,7 @@ App.ui = App.ui || {};
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = "#000000";
       ctx.font = "700 " + Math.round(labelFont) + "px " + FONT;
-      ctx.fillText(printLabel(period, classroom), roomMid, y0 + labelFont);
+      ctx.fillText(labelText, roomMid, y0 + labelFont);
     }
 
     let gridTop;
