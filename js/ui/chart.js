@@ -702,7 +702,7 @@ App.ui = App.ui || {};
         onchange: setClassroom("slideLayout"),
       }, [
         el("option", { value: "room", text: "Slide: room only", selected: classroom.slideLayout !== "list" }),
-        el("option", { value: "list", text: "Slide: room + name list", selected: classroom.slideLayout === "list" }),
+        el("option", { value: "list", text: "Slide: room + Find your seat list", selected: classroom.slideLayout === "list" }),
       ]),
       el("button", {
         text: "Copy for Slides",
