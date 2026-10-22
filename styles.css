@@ -434,6 +434,15 @@ input:disabled { opacity: 0.45; cursor: not-allowed; }
 .legend span { display: inline-flex; align-items: center; gap: 4px; }
 .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
+.backup-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.backup-status { font-size: 12px; color: var(--text-muted); }
+.backup-status.stale { color: var(--warning); font-weight: 600; }
+
 .inline-field {
   display: inline-flex;
   align-items: center;

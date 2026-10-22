@@ -110,13 +110,24 @@ window.App = window.App || {};
     return state;
   }
 
+  function isValidState(data) {
+    return !!(data && data.periods && Array.isArray(data.periodOrder) && data.periodOrder.every((id) => data.periods[id]));
+  }
+
+  // Brings saved data from any older version of the app up to date.
+  function normalize(data) {
+    const next = ensurePeriodDefaults(ensureClassroomDefaults(migrateToSixPeriods(migrateToSharedClassroom(data))));
+    if (!next.periods[next.activePeriodId]) next.activePeriodId = next.periodOrder[0];
+    return next;
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState();
       const parsed = JSON.parse(raw);
-      if (!parsed || !parsed.periods || !parsed.periodOrder) return defaultState();
-      return ensurePeriodDefaults(ensureClassroomDefaults(migrateToSixPeriods(migrateToSharedClassroom(parsed))));
+      if (!isValidState(parsed)) return defaultState();
+      return normalize(parsed);
     } catch (e) {
       console.error("Failed to load saved data, starting fresh.", e);
       return defaultState();
@@ -151,6 +162,17 @@ window.App = window.App || {};
     // Run a mutator against the live state, then persist + notify.
     update(mutator) {
       mutator(state);
+      persist();
+      notify();
+    },
+    isValidState,
+    // Swap in a whole saved state (from a backup file), in place so every
+    // module holding App.store.state keeps a live reference.
+    replaceAll(data) {
+      if (!isValidState(data)) throw new Error("Not a seating chart backup.");
+      const next = normalize(JSON.parse(JSON.stringify(data)));
+      Object.keys(state).forEach((k) => { delete state[k]; });
+      Object.assign(state, next);
       persist();
       notify();
     },

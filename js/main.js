@@ -11,6 +11,7 @@
 
     root.appendChild(el("div", { class: "header-bar" }, [
       el("h1", { text: "Seating Chart" }),
+      App.ui.backup.render(state),
     ]));
     root.appendChild(App.ui.periods.renderTabs(state));
 
