@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seating Chart Updates</title>
+  <style>
+    :root { --bg: #ffffff; --text: #1a1a1a; --muted: #666; --link: #1a5fb4; --rule: #e4e4e4; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #121212; --text: #eaeaea; --muted: #9a9a9a; --link: #78aeed; --rule: #2c2c2c; }
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 18px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    main { max-width: 640px; margin: 0 auto; padding: 10vh 16px 64px; }
+    .back { font-size: 0.9rem; }
+    h1 { font-size: 2rem; font-weight: 600; margin: 0.75rem 0 0.25rem; letter-spacing: -0.01em; }
+    .intro { color: var(--muted); margin: 0 0 2rem; }
+    section { border-top: 1px solid var(--rule); padding-top: 1.25rem; margin-top: 1.5rem; }
+    h2 { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 0.5rem; }
+    ul { margin: 0; padding-left: 1.2em; }
+    li { margin: 0.4rem 0; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← Chris Godek</a>
+    <h1>Seating Chart: What's New</h1>
+    <p class="intro"><a href="./">Open the Seating Chart</a></p>
+
+    <!-- Newest first. Add a new <section> at the top for each update. -->
+    <section>
+      <h2>October 22, 2026</h2>
+      <ul>
+        <li>Edit a student's name right in the roster with the pencil button, or by double-clicking it.</li>
+        <li>New <b>Names</b> setting: show full names or first names only. If two students share a first name, they keep their full names.</li>
+        <li><b>Copy for Slides</b> and <b>Download Slide (PNG)</b> make a 16:9 image of the chart, ready to paste into Google Slides. Names are sized to fill each seat.</li>
+        <li>New slide option, <b>Slide: room + Find your seat list</b>, which puts an alphabetical list of students beside the room so everyone can find their table quickly.</li>
+        <li>Phone hotel numbers are bigger on slides and also appear in the Find your seat list.</li>
+        <li>New <b>View</b> setting: student view (whiteboard at the top), teacher view (turned around 180°), or flipped left ↔ right.</li>
+        <li>Bigger table numbers and seat markers on slide images, and slide headings no longer overlap the name list.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>August 2026: First version</h2>
+      <ul>
+        <li>Import a class roster from a CSV or text file, or paste in names.</li>
+        <li>Set up the room as groups of tables with rows and columns.</li>
+        <li><b>Randomize</b> seats, with rules for students who <b>must sit together</b> or should be <b>kept apart</b>, and preferred min/max students per table.</li>
+        <li>Drag and drop students to adjust seats by hand.</li>
+        <li>Separate rosters and charts for each class period, saved charts, and printing (including all periods at once).</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
