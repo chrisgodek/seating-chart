@@ -107,7 +107,7 @@ App.ui = App.ui || {};
   // across two (whichever lets the text be bigger). Used for the slide image.
   function fitName(ctx, text, maxW, maxH, weight) {
     const widthAt = (line, px) => { ctx.font = weight + " " + px + "px " + FONT; return ctx.measureText(line).width; };
-    let size = maxH * 0.5;
+    let size = maxH * 0.7;
     const w1 = widthAt(text, size);
     if (w1 > maxW) size *= maxW / w1;
     let best = { size, lines: [text] };
@@ -115,22 +115,27 @@ App.ui = App.ui || {};
     for (let k = 1; k < words.length; k++) {
       const lines = [words.slice(0, k).join(" "), words.slice(k).join(" ")];
       const widest = Math.max(widthAt(lines[0], 100), widthAt(lines[1], 100));
-      const twoSize = Math.min(maxH * 0.38, (100 * maxW) / widest);
+      const twoSize = Math.min(maxH * 0.44, (100 * maxW) / widest);
       if (twoSize > best.size * 1.1) best = { size: twoSize, lines };
     }
     return best;
   }
 
-  // Alphabetical "Name ...... Table 3 ♠" list of every seated student, laid
-  // out in however many columns lets the text be largest.
-  function drawSeatList(ctx, period, classroom, names, tableNumbers, x0, y0, w, h) {
+  // Alphabetical "Name ...... #12 · Table 3 ♠" list of every seated student
+  // (phone hotel # when there is one), laid out in however many columns lets
+  // the text be largest.
+  function drawSeatList(ctx, period, classroom, names, tableNumbers, autoPhoneNumbers, x0, y0, w, h) {
     const entries = [];
     classroom.layout.groups.forEach((g) => {
       const capacity = App.seating.groupCapacity(g);
       for (let i = 0; i < capacity; i++) {
-        const studentId = period.assignment[App.seating.seatId(g.id, i)];
+        const sid = App.seating.seatId(g.id, i);
+        const studentId = period.assignment[sid];
         if (!studentId || !names[studentId]) continue;
-        entries.push({ name: names[studentId], table: "Table " + tableNumbers[g.id], marker: App.util.getSeatMarker(classroom, i) });
+        const student = period.students.find((s) => s.id === studentId);
+        const phone = autoPhoneNumbers ? autoPhoneNumbers[sid] : (student && student.phoneNumber);
+        const table = (phone ? "#" + phone + "  \u00b7  " : "") + "Table " + tableNumbers[g.id];
+        entries.push({ name: names[studentId], table, marker: App.util.getSeatMarker(classroom, i) });
       }
     });
     entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -220,6 +225,7 @@ App.ui = App.ui || {};
     const SEAT_W = 130, SEAT_H = 66, SEAT_GAP = 8, TABLE_PAD = 14, TABLE_GAP = 26;
     const HEADER_H = slide ? 40 : 26;
     const tableFont = slide ? 26 : 14, markerFont = slide ? 24 : 13, markerInset = slide ? 16 : 13;
+    const phoneFont = slide ? 22 : 11;
     const layout = classroom.layout;
     const groups = layout.groups;
     const maxSeatCols = Math.max(1, ...groups.map((g) => g.seatCols));
@@ -364,7 +370,7 @@ App.ui = App.ui || {};
         const phoneLine = autoPhoneNumbers
           ? "#" + autoPhoneNumbers[sid]
           : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
-        const phoneBand = phoneLine ? 15 * G : 0;
+        const phoneBand = phoneLine ? (phoneFont + 4) * G : 0;
 
         ctx.textAlign = "center";
         ctx.fillStyle = "#000000";
@@ -388,14 +394,14 @@ App.ui = App.ui || {};
 
         if (phoneLine) {
           ctx.textBaseline = "alphabetic";
-          ctx.font = "400 " + Math.round(11 * G) + "px " + FONT;
-          ctx.fillStyle = "#555555";
+          ctx.font = (slide ? "700 " : "400 ") + Math.round(phoneFont * G) + "px " + FONT;
+          ctx.fillStyle = slide ? "#333333" : "#555555";
           ctx.fillText(phoneLine, sx + seatW / 2, sy + seatH - 6 * G);
         }
       }
     });
 
-    if (withList) drawSeatList(ctx, period, classroom, names, tableNumbers, margin, margin, roomX0 - 56 - margin, height - margin * 2);
+    if (withList) drawSeatList(ctx, period, classroom, names, tableNumbers, autoPhoneNumbers, margin, margin, roomX0 - 56 - margin, height - margin * 2);
 
     return canvas;
   }
