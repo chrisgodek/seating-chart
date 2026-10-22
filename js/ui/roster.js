@@ -6,6 +6,7 @@ App.ui = App.ui || {};
   let selectedIds = new Set();
   let lastPeriodId = null;
   let pasteBoxOpen = false;
+  let editingId = null; // student whose name is being edited in place
 
   function toggleSelect(id) {
     if (selectedIds.has(id)) selectedIds.delete(id);
@@ -24,6 +25,7 @@ App.ui = App.ui || {};
     if (period.id !== lastPeriodId) {
       selectedIds.clear();
       pasteBoxOpen = false;
+      editingId = null;
       lastPeriodId = period.id;
     }
 
@@ -233,9 +235,47 @@ App.ui = App.ui || {};
           },
         });
 
-        const row = el("div", { class: "roster-row" + (selectedIds.has(s.id) ? " selected" : "") }, [
+        const startEditing = () => { editingId = s.id; App.rerender(); };
+        let nameCell, editBtn;
+        if (editingId === s.id) {
+          const editFirst = el("input", { type: "text", placeholder: "First", value: s.firstName || "" });
+          const editLast = el("input", { type: "text", placeholder: "Last", value: s.lastName || "" });
+          const save = () => {
+            const firstName = editFirst.value.trim();
+            const lastName = editLast.value.trim();
+            editingId = null;
+            if (!firstName && !lastName) { App.rerender(); return; }
+            App.store.update((state) => {
+              const stu = state.periods[period.id].students.find((x) => x.id === s.id);
+              stu.firstName = firstName;
+              stu.lastName = lastName;
+            });
+          };
+          const onKey = (e) => {
+            if (e.key === "Enter") save();
+            else if (e.key === "Escape") { editingId = null; App.rerender(); }
+          };
+          editFirst.addEventListener("keydown", onKey);
+          editLast.addEventListener("keydown", onKey);
+          nameCell = el("span", { class: "name-edit" }, [editFirst, editLast]);
+          editBtn = el("button", { class: "small primary", text: "Save", onclick: save });
+          requestAnimationFrame(() => { editFirst.focus(); editFirst.select(); });
+        } else {
+          nameCell = el("span", { class: "name", text: fullName(s) || "(unnamed)", title: "Double-click to edit", ondblclick: startEditing });
+          editBtn = el("button", { class: "small", text: "✎", title: "Edit name", onclick: startEditing });
+        }
+
+        // While editing, the name boxes get the whole row.
+        const editing = editingId === s.id;
+        const row = el("div", { class: "roster-row" + (selectedIds.has(s.id) ? " selected" : "") }, editing ? [
           checkbox,
-          el("span", { class: "name", text: fullName(s) || "(unnamed)" }),
+          nameCell,
+          editBtn,
+          el("button", { class: "small", text: "Cancel", onclick: () => { editingId = null; App.rerender(); } }),
+        ] : [
+          checkbox,
+          nameCell,
+          editBtn,
           phoneInput,
           frontBtn,
           deleteBtn,

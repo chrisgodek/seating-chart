@@ -5,6 +5,32 @@ window.App = window.App || {};
     return [student.firstName, student.lastName].filter(Boolean).join(" ").trim();
   }
 
+  // Name shown on the chart for each student, keyed by id. In "first" mode
+  // it's just the first name, except when two students in the period share a
+  // first name — then both get their full name so they can be told apart.
+  function displayNameMap(students, mode) {
+    const map = {};
+    const counts = {};
+    students.forEach((s) => {
+      const key = (s.firstName || "").trim().toLowerCase();
+      if (key) counts[key] = (counts[key] || 0) + 1;
+    });
+    students.forEach((s) => {
+      const first = (s.firstName || "").trim();
+      const useFirst = mode === "first" && first && counts[first.toLowerCase()] === 1;
+      map[s.id] = useFirst ? first : fullName(s);
+    });
+    return map;
+  }
+
+  // How the chart is drawn relative to the real room. "teacher" is the view
+  // from the whiteboard looking out (turned 180°: front at the bottom, left and
+  // right swapped); "mirror" only swaps left and right. Seat ids never change,
+  // so this is display-only.
+  function chartOrientation(view) {
+    return { flipRows: view === "teacher", flipCols: view === "teacher" || view === "mirror" };
+  }
+
   // The string to alphabetize a student by — first name or last name led,
   // with the other name as a tiebreaker. Used by the A→Z / Z→A seating modes.
   function sortableName(student, by) {
@@ -116,5 +142,5 @@ window.App = window.App || {};
     return node;
   }
 
-  App.util = { fullName, sortableName, formatTimestamp, el, SUITS, COLORS, numberTables, suitForSeatIndex, colorForSeatIndex, getSeatMarker, computeAutoPhoneNumbers, printFontScale, PRINT_FONT_SCALES };
+  App.util = { fullName, displayNameMap, chartOrientation, sortableName, formatTimestamp, el, SUITS, COLORS, numberTables, suitForSeatIndex, colorForSeatIndex, getSeatMarker, computeAutoPhoneNumbers, printFontScale, PRINT_FONT_SCALES };
 })();

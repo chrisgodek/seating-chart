@@ -34,6 +34,8 @@ window.App = window.App || {};
       autoAssignPhoneNumbers: false,
       alphabetizeBy: "first", // "first" or "last" — used by the A→Z / Z→A seating buttons
       printFontSize: "normal", // "normal" | "large" | "xlarge" — print & saved-image text size
+      nameDisplay: "full", // "full" or "first" — first names only (full name when a first name repeats)
+      chartView: "student", // "student" (front at top) | "teacher" (turned 180°) | "mirror" (left↔right)
     };
   }
 

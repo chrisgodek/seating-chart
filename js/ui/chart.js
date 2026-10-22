@@ -2,7 +2,7 @@ window.App = window.App || {};
 App.ui = App.ui || {};
 
 (function () {
-  const { el, fullName } = App.util;
+  const { el } = App.util;
   const lastUnmetByPeriod = {};
 
   // e.g. "Mr. Godek's Class — Period 1 - IM2" (class name and course name are
@@ -103,24 +103,59 @@ App.ui = App.ui || {};
 
   const FONT = "-apple-system, Helvetica, Arial, sans-serif";
 
+  // Largest font that fits `text` in a maxW x maxH box, on one line or split
+  // across two (whichever lets the text be bigger). Used for the slide image.
+  function fitName(ctx, text, maxW, maxH, weight) {
+    const widthAt = (line, px) => { ctx.font = weight + " " + px + "px " + FONT; return ctx.measureText(line).width; };
+    let size = maxH * 0.5;
+    const w1 = widthAt(text, size);
+    if (w1 > maxW) size *= maxW / w1;
+    let best = { size, lines: [text] };
+    const words = text.split(" ");
+    for (let k = 1; k < words.length; k++) {
+      const lines = [words.slice(0, k).join(" "), words.slice(k).join(" ")];
+      const widest = Math.max(widthAt(lines[0], 100), widthAt(lines[1], 100));
+      const twoSize = Math.min(maxH * 0.38, (100 * maxW) / widest);
+      if (twoSize > best.size * 1.1) best = { size: twoSize, lines };
+    }
+    return best;
+  }
+
   // Draws the seating chart fresh onto a canvas (not a DOM screenshot), so the
   // exported image follows the same "clean" rules as print: no conflict/thin
   // highlighting, no "Front" word — just the room, tables, and students.
-  function buildChartCanvas(period, classroom) {
-    const SCALE = 2;
-    const S = App.util.printFontScale(classroom); // same "Print font size" setting as the printout
-    const SEAT_W = 130 * S, SEAT_H = 66 * S, SEAT_GAP = 8 * S;
-    const TABLE_PAD = 14 * S, HEADER_H = 26 * S, TABLE_GAP = 26 * S, MARGIN = 36 * S, BANNER_H = 96 * S;
+  // format "print": sized by the Print text size setting (the JPG).
+  // format "slide": a fixed 1920x1080 (16:9) image for Google Slides, with the
+  // room scaled to fill it and each name sized as large as its seat allows.
+  function buildChartCanvas(period, classroom, format) {
+    const slide = format === "slide";
+    const SCALE = slide ? 1 : 2;
+    const { flipRows, flipCols } = App.util.chartOrientation(classroom.chartView);
+    const names = App.util.displayNameMap(period.students, classroom.nameDisplay);
 
+    // Room geometry in base units; G scales all of it.
+    const SEAT_W = 130, SEAT_H = 66, SEAT_GAP = 8, TABLE_PAD = 14, HEADER_H = 26, TABLE_GAP = 26;
     const layout = classroom.layout;
     const groups = layout.groups;
     const maxSeatCols = Math.max(1, ...groups.map((g) => g.seatCols));
     const maxSeatRows = Math.max(1, ...groups.map((g) => g.seatRows));
     const cellW = TABLE_PAD * 2 + maxSeatCols * SEAT_W + (maxSeatCols - 1) * SEAT_GAP;
     const cellH = HEADER_H + TABLE_PAD * 2 + maxSeatRows * SEAT_H + (maxSeatRows - 1) * SEAT_GAP;
+    const gridW = layout.cols * cellW + Math.max(0, layout.cols - 1) * TABLE_GAP;
+    const gridH = layout.rows * cellH + Math.max(0, layout.rows - 1) * TABLE_GAP;
 
-    const width = MARGIN * 2 + layout.cols * cellW + Math.max(0, layout.cols - 1) * TABLE_GAP;
-    const height = MARGIN * 2 + BANNER_H + layout.rows * cellH + Math.max(0, layout.rows - 1) * TABLE_GAP;
+    let width, height, G, margin, frontFont, labelFont, frontH, labelH;
+    if (slide) {
+      width = 1920; height = 1080; margin = 36;
+      frontFont = 40; labelFont = 32; frontH = 72; labelH = 52;
+      G = Math.min((width - margin * 2) / gridW, (height - margin * 2 - frontH - labelH) / gridH);
+    } else {
+      const S = App.util.printFontScale(classroom); // same "Print font size" setting as the printout
+      G = S; margin = 36 * S;
+      frontFont = 30 * S; labelFont = 20 * S; frontH = 56 * S; labelH = 40 * S;
+      width = margin * 2 + gridW * G;
+      height = margin * 2 + frontH + labelH + gridH * G;
+    }
 
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(width * SCALE);
@@ -131,61 +166,92 @@ App.ui = App.ui || {};
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);
 
-    ctx.textAlign = "center";
-    ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = "#000000";
-    ctx.font = "800 " + Math.round(30 * S) + "px " + FONT;
-    ctx.fillText("Whiteboard / Front of Class", width / 2, MARGIN + 30 * S);
-    ctx.beginPath();
-    ctx.moveTo(MARGIN, MARGIN + 44 * S);
-    ctx.lineTo(width - MARGIN, MARGIN + 44 * S);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#000000";
-    ctx.stroke();
-    ctx.font = "700 " + Math.round(20 * S) + "px " + FONT;
-    ctx.fillText(printLabel(period, classroom), width / 2, MARGIN + 74 * S);
+    // Student view: whiteboard banner, then period label, then the room.
+    // Teacher view: period label, the room, then the whiteboard at the bottom.
+    function drawFrontBanner(y0, lineOnTop) {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = "#000000";
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 3;
+      const lineY = lineOnTop ? y0 + frontH * 0.15 : y0 + frontH * 0.8;
+      const textY = lineOnTop ? y0 + frontH * 0.15 + frontFont * 1.25 : y0 + frontFont;
+      ctx.font = "800 " + Math.round(frontFont) + "px " + FONT;
+      ctx.fillText("Whiteboard / Front of Class", width / 2, textY);
+      ctx.beginPath();
+      ctx.moveTo(margin, lineY);
+      ctx.lineTo(width - margin, lineY);
+      ctx.stroke();
+    }
+    function drawLabel(y0) {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = "#000000";
+      ctx.font = "700 " + Math.round(labelFont) + "px " + FONT;
+      ctx.fillText(printLabel(period, classroom), width / 2, y0 + labelFont);
+    }
+
+    let gridTop;
+    if (flipRows) {
+      drawLabel(margin);
+      gridTop = margin + labelH;
+      drawFrontBanner(height - margin - frontH, true);
+    } else {
+      drawFrontBanner(margin, false);
+      drawLabel(margin + frontH);
+      gridTop = margin + frontH + labelH;
+    }
+    const availH = height - margin * 2 - frontH - labelH;
+    const gridX = (width - gridW * G) / 2;
+    const gridY = gridTop + (availH - gridH * G) / 2;
 
     const tableNumbers = App.util.numberTables(layout);
     const autoPhoneNumbers = classroom.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(layout) : null;
 
     groups.forEach((g) => {
-      const x = MARGIN + g.col * (cellW + TABLE_GAP);
-      const y = MARGIN + BANNER_H + g.row * (cellH + TABLE_GAP);
-      const tableW = TABLE_PAD * 2 + g.seatCols * SEAT_W + (g.seatCols - 1) * SEAT_GAP;
-      const tableH = HEADER_H + TABLE_PAD * 2 + g.seatRows * SEAT_H + (g.seatRows - 1) * SEAT_GAP;
+      const row = flipRows ? layout.rows - 1 - g.row : g.row;
+      const col = flipCols ? layout.cols - 1 - g.col : g.col;
+      const x = gridX + col * (cellW + TABLE_GAP) * G;
+      const y = gridY + row * (cellH + TABLE_GAP) * G;
+      const tableW = (TABLE_PAD * 2 + g.seatCols * SEAT_W + (g.seatCols - 1) * SEAT_GAP) * G;
+      const tableH = (HEADER_H + TABLE_PAD * 2 + g.seatRows * SEAT_H + (g.seatRows - 1) * SEAT_GAP) * G;
 
       ctx.strokeStyle = g.isFront ? "#b5750a" : "#000000";
       ctx.lineWidth = 2;
-      roundRect(ctx, x, y, tableW, tableH, 10 * S);
+      roundRect(ctx, x, y, tableW, tableH, 10 * G);
       ctx.stroke();
 
       ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
       ctx.fillStyle = g.isFront ? "#b5750a" : "#000000";
-      ctx.font = "700 " + Math.round(14 * S) + "px " + FONT;
-      ctx.fillText("Table " + tableNumbers[g.id], x + TABLE_PAD, y + 20 * S);
+      ctx.font = "700 " + Math.round(14 * G) + "px " + FONT;
+      ctx.fillText("Table " + tableNumbers[g.id], x + TABLE_PAD * G, y + 20 * G);
 
       const capacity = App.seating.groupCapacity(g);
+      const seatW = SEAT_W * G, seatH = SEAT_H * G;
       for (let i = 0; i < capacity; i++) {
-        const sr = Math.floor(i / g.seatCols);
-        const sc = i % g.seatCols;
-        const sx = x + TABLE_PAD + sc * (SEAT_W + SEAT_GAP);
-        const sy = y + HEADER_H + TABLE_PAD + sr * (SEAT_H + SEAT_GAP);
-
-        ctx.fillStyle = "#ffffff";
-        ctx.strokeStyle = "#999999";
-        ctx.lineWidth = 1.5;
-        roundRect(ctx, sx, sy, SEAT_W, SEAT_H, 6 * S);
-        ctx.fill();
-        ctx.stroke();
+        const sr0 = Math.floor(i / g.seatCols);
+        const sc0 = i % g.seatCols;
+        const sr = flipRows ? g.seatRows - 1 - sr0 : sr0;
+        const sc = flipCols ? g.seatCols - 1 - sc0 : sc0;
+        const sx = x + (TABLE_PAD + sc * (SEAT_W + SEAT_GAP)) * G;
+        const sy = y + (HEADER_H + TABLE_PAD + sr * (SEAT_H + SEAT_GAP)) * G;
 
         const sid = App.seating.seatId(g.id, i);
         const studentId = period.assignment[sid];
         const student = studentId ? period.students.find((s) => s.id === studentId) : null;
         const marker = App.util.getSeatMarker(classroom, i);
 
+        ctx.fillStyle = slide && !student ? "#f2f2f2" : "#ffffff";
+        ctx.strokeStyle = "#999999";
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, sx, sy, seatW, seatH, 6 * G);
+        ctx.fill();
+        ctx.stroke();
+
         if (marker.type === "color") {
           ctx.beginPath();
-          ctx.arc(sx + SEAT_W - 13 * S, sy + 13 * S, 6 * S, 0, Math.PI * 2);
+          ctx.arc(sx + seatW - 13 * G, sy + 13 * G, 6 * G, 0, Math.PI * 2);
           ctx.fillStyle = marker.swatch;
           ctx.fill();
           ctx.lineWidth = 1;
@@ -193,23 +259,40 @@ App.ui = App.ui || {};
           ctx.stroke();
         } else {
           ctx.textAlign = "right";
+          ctx.textBaseline = "alphabetic";
           ctx.fillStyle = marker.textColor === "red" ? "#c0392b" : "#000000";
-          ctx.font = "700 " + Math.round(13 * S) + "px " + FONT;
-          ctx.fillText(marker.symbol, sx + SEAT_W - 8 * S, sy + 17 * S);
+          ctx.font = "700 " + Math.round(13 * G) + "px " + FONT;
+          ctx.fillText(marker.symbol, sx + seatW - 8 * G, sy + 17 * G);
         }
-
-        ctx.textAlign = "center";
-        ctx.fillStyle = "#000000";
-        ctx.font = "600 " + Math.round(13 * S) + "px " + FONT;
-        wrapText(ctx, student ? fullName(student) : "Empty", sx + SEAT_W / 2, sy + SEAT_H / 2 - 2 * S, SEAT_W - 16 * S, 15 * S);
 
         const phoneLine = autoPhoneNumbers
           ? "#" + autoPhoneNumbers[sid]
           : (student && student.phoneNumber ? "#" + student.phoneNumber : null);
+        const phoneBand = phoneLine ? 15 * G : 0;
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#000000";
+        if (slide) {
+          if (student) {
+            const fit = fitName(ctx, names[student.id] || "(unnamed)", seatW - 40 * G, seatH - phoneBand - 6 * G, "700");
+            ctx.font = "700 " + fit.size + "px " + FONT;
+            ctx.textBaseline = "middle";
+            const lineH = fit.size * 1.1;
+            const cy = sy + (seatH - phoneBand) / 2 + 2 * G;
+            fit.lines.forEach((line, li) => ctx.fillText(line, sx + seatW / 2, cy + (li - (fit.lines.length - 1) / 2) * lineH));
+            ctx.textBaseline = "alphabetic";
+          }
+        } else {
+          ctx.textBaseline = "alphabetic";
+          ctx.font = "600 " + Math.round(13 * G) + "px " + FONT;
+          wrapText(ctx, student ? (names[student.id] || "(unnamed)") : "Empty", sx + seatW / 2, sy + seatH / 2 - 2 * G, seatW - 16 * G, 15 * G);
+        }
+
         if (phoneLine) {
-          ctx.font = "400 " + Math.round(11 * S) + "px " + FONT;
+          ctx.textBaseline = "alphabetic";
+          ctx.font = "400 " + Math.round(11 * G) + "px " + FONT;
           ctx.fillStyle = "#555555";
-          ctx.fillText(phoneLine, sx + SEAT_W / 2, sy + SEAT_H - 8 * S);
+          ctx.fillText(phoneLine, sx + seatW / 2, sy + seatH - 6 * G);
         }
       }
     });
@@ -217,19 +300,51 @@ App.ui = App.ui || {};
     return canvas;
   }
 
-  function downloadChartImage(period, classroom) {
-    const canvas = buildChartCanvas(period, classroom);
+  function chartFileName(period, suffix) {
+    return (period.label || "seating-chart").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") + suffix;
+  }
+
+  function downloadCanvas(canvas, fileName, type, quality) {
     canvas.toBlob((blob) => {
       if (!blob) { alert("Couldn't generate the image."); return; }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = (period.label || "seating-chart").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") + "-seating-chart.jpg";
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    }, "image/jpeg", 0.92);
+    }, type, quality);
+  }
+
+  function downloadChartImage(period, classroom) {
+    downloadCanvas(buildChartCanvas(period, classroom, "print"), chartFileName(period, "-seating-chart.jpg"), "image/jpeg", 0.92);
+  }
+
+  function downloadSlideImage(period, classroom) {
+    downloadCanvas(buildChartCanvas(period, classroom, "slide"), chartFileName(period, "-seating-chart-slide.png"), "image/png");
+  }
+
+  // Copies the slide image to the clipboard so it can be pasted straight into
+  // Google Slides (Cmd+V). Falls back to a download if the browser says no.
+  function copySlideImage(period, classroom, button) {
+    const canvas = buildChartCanvas(period, classroom, "slide");
+    const blobPromise = new Promise((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("no image"))), "image/png"));
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      alert("This browser can't copy images — downloading the slide image instead.");
+      downloadSlideImage(period, classroom);
+      return;
+    }
+    navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise })]).then(() => {
+      const original = button.textContent;
+      button.textContent = "Copied! Paste into Slides";
+      setTimeout(() => { button.textContent = original; }, 2000);
+    }).catch(() => {
+      alert("Couldn't copy the image — downloading it instead.");
+      downloadSlideImage(period, classroom);
+    });
   }
 
   // Builds the table/seat grid for one period against the shared classroom
@@ -242,13 +357,19 @@ App.ui = App.ui || {};
     const tableNumbers = App.util.numberTables(classroom.layout);
     const autoPhoneNumbers = classroom.autoAssignPhoneNumbers ? App.util.computeAutoPhoneNumbers(classroom.layout) : null;
     const layout = classroom.layout;
+    const names = App.util.displayNameMap(period.students, classroom.nameDisplay);
+    const { flipRows, flipCols } = App.util.chartOrientation(classroom.chartView);
     const grid = el("div", {
       class: "room-grid",
       style: `grid-template-columns: repeat(${layout.cols}, minmax(140px, 1fr)); grid-template-rows: repeat(${layout.rows}, auto);`,
     });
 
-    for (let r = 0; r < layout.rows; r++) {
-      for (let c = 0; c < layout.cols; c++) {
+    // Loop over display positions; flip back to the real room position so
+    // seat ids (and drag-and-drop) are unaffected by the view.
+    for (let dr = 0; dr < layout.rows; dr++) {
+      for (let dc = 0; dc < layout.cols; dc++) {
+        const r = flipRows ? layout.rows - 1 - dr : dr;
+        const c = flipCols ? layout.cols - 1 - dc : dc;
         const group = layout.groups.find((g) => g.row === r && g.col === c);
         if (!group) {
           grid.appendChild(el("div", { class: "table-group blank" }));
@@ -259,7 +380,11 @@ App.ui = App.ui || {};
           class: "seat-grid",
           style: `grid-template-columns: repeat(${group.seatCols}, 1fr);`,
         });
-        for (let i = 0; i < capacity; i++) {
+        for (let di = 0; di < capacity; di++) {
+          const dsr = Math.floor(di / group.seatCols), dsc = di % group.seatCols;
+          const sr = flipRows ? group.seatRows - 1 - dsr : dsr;
+          const sc = flipCols ? group.seatCols - 1 - dsc : dsc;
+          const i = sr * group.seatCols + sc;
           const sid = App.seating.seatId(group.id, i);
           const studentId = period.assignment[sid];
           const student = studentId ? period.students.find((s) => s.id === studentId) : null;
@@ -278,7 +403,7 @@ App.ui = App.ui || {};
             "data-seat-id": sid,
           }, [
             markerBadge,
-            el("span", { class: "seat-name", text: student ? fullName(student) : "Empty" }),
+            el("span", { class: "seat-name", text: student ? (names[student.id] || "(unnamed)") : "Empty" }),
             phoneLine ? el("span", { class: "seat-phone", text: phoneLine }) : null,
           ]));
         }
@@ -303,19 +428,22 @@ App.ui = App.ui || {};
     return grid;
   }
 
-  function buildPrintHeader(period, classroom) {
-    return el("div", { class: "print-header" }, [
-      el("div", { class: "print-header-banner", text: "Whiteboard / Front of Class" }),
-      el("div", { class: "print-header-sub", text: printLabel(period, classroom) }),
-    ]);
+  // The chart with its whiteboard bar and period label, in reading order for
+  // the current view: whiteboard on top for students, at the bottom for the
+  // teacher view. Shared by the live chart and the "print all" pages.
+  function buildChartBody(period, classroom, options) {
+    const { flipRows } = App.util.chartOrientation(classroom.chartView);
+    const frontBar = el("div", { class: "front-bar" + (flipRows ? " bottom" : ""), text: "Whiteboard / Front of Class" });
+    const label = el("div", { class: "print-label print-only", text: printLabel(period, classroom) });
+    const grid = buildSeatingGrid(period, classroom, options);
+    return el("div", { class: "chart-body" }, flipRows ? [label, grid, frontBar] : [frontBar, label, grid]);
   }
 
-  // One printable page (header + room grid) for a single period — used to
-  // build up the multi-period "print all" job below.
+  // One printable page for a single period — used to build up the
+  // multi-period "print all" job below.
   function buildPrintablePage(period, classroom) {
     const page = el("div", { class: "print-page" });
-    page.appendChild(buildPrintHeader(period, classroom));
-    page.appendChild(buildSeatingGrid(period, classroom, { interactive: false }));
+    page.appendChild(buildChartBody(period, classroom, { interactive: false }));
     return page;
   }
 
@@ -418,6 +546,29 @@ App.ui = App.ui || {};
           App.store.update((state) => { state.periods[period.id].assignment = {}; });
         },
       }),
+    ]));
+
+    const hasAssignment = Object.keys(period.assignment).length > 0;
+    const setClassroom = (key) => (e) => App.store.update((state) => { state.classroom[key] = e.target.value; });
+    panel.appendChild(el("div", { class: "toolbar-row" }, [
+      el("label", { class: "inline-field" }, [
+        "Names",
+        el("select", { onchange: setClassroom("nameDisplay") }, [
+          el("option", { value: "full", text: "Full names", selected: classroom.nameDisplay !== "first" }),
+          el("option", { value: "first", text: "First names", selected: classroom.nameDisplay === "first" }),
+        ]),
+      ]),
+      el("label", { class: "inline-field" }, [
+        "View",
+        el("select", { onchange: setClassroom("chartView") }, [
+          el("option", { value: "student", text: "Student view (whiteboard at top)", selected: classroom.chartView === "student" }),
+          el("option", { value: "teacher", text: "Teacher view (from the whiteboard)", selected: classroom.chartView === "teacher" }),
+          el("option", { value: "mirror", text: "Flip left \u2194 right", selected: classroom.chartView === "mirror" }),
+        ]),
+      ]),
+    ]));
+
+    panel.appendChild(el("div", { class: "toolbar-row" }, [
       el("select", {
         title: "Print & saved-image text size",
         onchange: (e) => {
@@ -432,7 +583,7 @@ App.ui = App.ui || {};
       )),
       el("button", {
         text: "Print",
-        disabled: !Object.keys(period.assignment).length,
+        disabled: !hasAssignment,
         onclick: () => window.print(),
       }),
       el("button", {
@@ -443,8 +594,20 @@ App.ui = App.ui || {};
       }),
       el("button", {
         text: "Save as Image (JPG)",
-        disabled: !Object.keys(period.assignment).length,
+        disabled: !hasAssignment,
         onclick: () => downloadChartImage(period, classroom),
+      }),
+      el("button", {
+        text: "Copy for Slides",
+        title: "Copy a 16:9 slide image of the chart, then paste it into Google Slides",
+        disabled: !hasAssignment,
+        onclick: (e) => copySlideImage(period, classroom, e.currentTarget),
+      }),
+      el("button", {
+        text: "Download Slide (PNG)",
+        title: "Download a 16:9 slide image of the chart",
+        disabled: !hasAssignment,
+        onclick: () => downloadSlideImage(period, classroom),
       }),
     ]));
 
@@ -466,10 +629,7 @@ App.ui = App.ui || {};
       return panel;
     }
 
-    panel.appendChild(buildPrintHeader(period, classroom));
-
-    const grid = buildSeatingGrid(period, classroom, { interactive: true });
-    panel.appendChild(grid);
+    panel.appendChild(buildChartBody(period, classroom, { interactive: true }));
     panel.appendChild(el("div", { class: "legend" }, [
       el("span", {}, [el("span", { class: "swatch", style: "background: var(--front-badge)" }), "Front table"]),
       el("span", {}, [el("span", { class: "swatch", style: "background: var(--danger)" }), "Seating rule broken (keep-apart or must-sit-together)"]),
